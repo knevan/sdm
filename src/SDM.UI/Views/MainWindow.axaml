@@ -1,0 +1,143 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SDM.UI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="550"
+        x:Class="SDM.UI.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}"
+        Width="900" Height="550"
+        MinWidth="700" MinHeight="400"
+        WindowStartupLocation="CenterScreen">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Top Toolbar -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="4">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <!-- Left toolbar buttons -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+                    <Button Name="BtnNewDownload"
+                            Content="＋ New"
+                            Click="BtnNewDownload_Click"
+                            Padding="12,6"
+                            FontWeight="SemiBold" />
+                    <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                               Margin="4,4" />
+                    <Button Content="⏸ Pause"
+                            Command="{Binding PauseDownloadCommand}"
+                            IsEnabled="{Binding CanPause}"
+                            Padding="10,6" />
+                    <Button Content="▶ Resume"
+                            Command="{Binding ResumeDownloadCommand}"
+                            IsEnabled="{Binding CanResume}"
+                            Padding="10,6" />
+                    <Button Content="✕ Cancel"
+                            Command="{Binding CancelDownloadCommand}"
+                            IsEnabled="{Binding CanCancel}"
+                            Padding="10,6" />
+                    <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                               Margin="4,4" />
+                    <Button Content="🗑 Remove"
+                            Command="{Binding RemoveDownloadCommand}"
+                            IsEnabled="{Binding CanRemove}"
+                            Padding="10,6" />
+                </StackPanel>
+                <!-- Search box -->
+                <TextBox Grid.Column="2"
+                         Text="{Binding SearchText, Mode=TwoWay}"
+                         PlaceholderText="Search downloads..."
+                         Width="200"
+                         Margin="4,0"
+                         VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+
+        <!-- Bottom Status Bar -->
+        <Border DockPanel.Dock="Bottom"
+                Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="8,4">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding StatusText}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Opacity="0.7" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                    <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.5">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="Active: {0}">
+                                <Binding Path="ActiveCount" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                    <Button Content="↻ Refresh"
+                            Command="{Binding RefreshListCommand}"
+                            Padding="8,2"
+                            FontSize="11" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main Content: Download List -->
+        <DataGrid ItemsSource="{Binding Downloads}"
+                  SelectedItem="{Binding SelectedDownload, Mode=TwoWay}"
+                  AutoGenerateColumns="False"
+                  CanUserReorderColumns="True"
+                  CanUserResizeColumns="True"
+                  CanUserSortColumns="True"
+                  IsReadOnly="True"
+                  SelectionMode="Single"
+                  GridLinesVisibility="Horizontal"
+                  BorderThickness="0"
+                  RowHeight="36">
+            <DataGrid.Columns>
+                <!-- File Name -->
+                <DataGridTextColumn Header="Name"
+                                    Binding="{Binding FileName}"
+                                    Width="2*"
+                                    MinWidth="200" />
+                <!-- Size -->
+                <DataGridTextColumn Header="Size"
+                                    Binding="{Binding SizeText}"
+                                    Width="80" />
+                <!-- Progress -->
+                <DataGridTemplateColumn Header="Progress" Width="120" MinWidth="80">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid Margin="4,0">
+                                <ProgressBar Value="{Binding ProgressInt}"
+                                             Minimum="0" Maximum="100"
+                                             Height="6"
+                                             VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <!-- Speed -->
+                <DataGridTextColumn Header="Speed"
+                                    Binding="{Binding SpeedText}"
+                                    Width="90" />
+                <!-- Status -->
+                <DataGridTextColumn Header="Status"
+                                    Binding="{Binding StatusText}"
+                                    Width="*"
+                                    MinWidth="120" />
+                <!-- Date Added -->
+                <DataGridTextColumn Header="Added"
+                                    Binding="{Binding DateText}"
+                                    Width="120" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

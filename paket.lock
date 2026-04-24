@@ -1,0 +1,6 @@
+STORAGE: NONE
+RESTRICTION: == net10
+NUGET
+  remote: https://api.nuget.org/v3/index.json
+    FSharp.SystemTextJson (1.4.36)
+    Microsoft.Data.Sqlite (10.0.7)

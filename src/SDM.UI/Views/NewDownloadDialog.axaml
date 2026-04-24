@@ -1,0 +1,64 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SDM.UI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="500"
+        d:DesignHeight="260"
+        x:Class="SDM.UI.Views.NewDownloadDialog"
+        x:DataType="vm:NewDownloadViewModel"
+        Title="New Download"
+        Width="500" Height="260"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+
+    <Design.DataContext>
+        <vm:NewDownloadViewModel />
+    </Design.DataContext>
+
+    <DockPanel Margin="16">
+        <!-- Bottom buttons -->
+        <StackPanel DockPanel.Dock="Bottom"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="8"
+                    Margin="0,16,0,0">
+            <Button Content="Download"
+                    Command="{Binding StartDownloadCommand}"
+                    IsEnabled="{Binding IsValid}"
+                    IsDefault="True"
+                    Padding="20,8"
+                    FontWeight="SemiBold" />
+            <Button Content="Cancel"
+                    Command="{Binding CancelCommand}"
+                    IsCancel="True"
+                    Padding="20,8" />
+        </StackPanel>
+
+        <!-- Form content -->
+        <StackPanel Spacing="12">
+            <!-- URL input -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Download URL" FontWeight="SemiBold" FontSize="13" />
+                <TextBox Text="{Binding Url, Mode=TwoWay}"
+                         PlaceholderText="https://example.com/file.zip"
+                         FontSize="13" />
+                <!-- Validation error -->
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Foreground="Red"
+                           FontSize="11"
+                           IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+
+            <!-- File name (auto-derived or manual) -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="File Name" FontWeight="SemiBold" FontSize="13" />
+                <TextBox Text="{Binding FileName, Mode=TwoWay}"
+                         PlaceholderText="(auto-detected from URL)"
+                         FontSize="13" />
+            </StackPanel>
+        </StackPanel>
+    </DockPanel>
+</Window>
