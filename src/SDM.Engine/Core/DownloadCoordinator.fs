@@ -69,7 +69,17 @@ type DownloadCoordinator
                     let now = DateTime.UtcNow
 
                     if (now - state.LastUpdateTime).TotalMilliseconds > 500.0 then
-                        eventHandler (ProgressUpdated(state.Entry.Id, progress, speed))
+                        eventHandler (
+                            ProgressUpdated(
+                                state.Entry.Id,
+                                { Id = state.Entry.Id
+                                  Progress = progress
+                                  Speed = speed
+                                  DownloadedBytes = totalDownloaded
+                                  TotalBytes = state.Entry.TotalSize }
+                            )
+                        )
+
                         return! loop { state with LastUpdateTime = now }
                     else
                         return! loop state

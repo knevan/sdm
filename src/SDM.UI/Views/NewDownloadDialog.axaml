@@ -12,7 +12,8 @@
         Width="500" Height="260"
         CanResize="False"
         WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        Background="#0f172a">
 
     <Design.DataContext>
         <vm:NewDownloadViewModel />

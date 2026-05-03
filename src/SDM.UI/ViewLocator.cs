@@ -18,6 +18,10 @@ public class ViewLocator : IDataTemplate
         {
             MainWindowViewModel => new MainWindow(),
             NewDownloadViewModel => new NewDownloadDialog(),
+            DownloadProgressViewModel => new DownloadProgressWindow(),
+            DownloadCompleteViewModel => new DownloadCompleteWindow(),
+            DeleteConfirmViewModel => new DeleteConfirmWindow(),
+            SpeedLimiterViewModel => new SpeedLimiterWindow(),
 
             null => null,
             _ => new TextBlock { Text = $"Not Found: {param.GetType().FullName}" }

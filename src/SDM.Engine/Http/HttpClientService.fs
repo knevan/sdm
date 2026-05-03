@@ -58,6 +58,11 @@ module HttpClientService =
         // Manage timeouts per-request via CancellationToken
         client.Timeout <- Timeout.InfiniteTimeSpan
 
+        // [TODO] Temporary user agent
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+        )
+
         headers
         |> Map.iter (fun k v -> client.DefaultRequestHeaders.TryAddWithoutValidation(k, v) |> ignore)
 

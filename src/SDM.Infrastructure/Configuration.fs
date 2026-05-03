@@ -5,6 +5,17 @@ open System.IO
 open System.Text.Json
 open System.Text.Json.Serialization
 
+/// Shared JSON serialization options for all F# domain types.
+/// Guarantee consistent serialization behavior
+/// across Configuration and DownloadStore.
+[<RequireQualifiedAccess>]
+module JsonConfig =
+    let options =
+        let opts = JsonSerializerOptions()
+        opts.WriteIndented <- true
+        opts.Converters.Add(JsonFSharpConverter())
+        opts
+
 /// Application configuration with sensible defaults.
 /// Replaces the monolithic Config.cs with immutable records
 /// and atomic file-based persistence.
@@ -52,24 +63,18 @@ and [<CLIMutable>] ProxyConfig =
       Username: string option
       Password: string option }
 
-and ProxyType =
+and [<Struct>] ProxyType =
     | Http
     | Socks5
     | System
 
-and FileConflictMode =
+and [<Struct>] FileConflictMode =
     | AutoRename
     | Overwrite
     | Ask
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module AppConfig =
-    let private jsonOptions =
-        JsonFSharpOptions.Default().ToJsonSerializerOptions()
-        |> fun opts ->
-            opts.WriteIndented <- true
-            opts
-
     /// Default configuration values
     let defaults =
         { MaxConcurrentDownloads = 8
@@ -120,10 +125,9 @@ module AppConfig =
 
         if File.Exists path then
             try
-                // use stream = File.OpenRead(path)
                 let json = File.ReadAllText path
 
-                match JsonSerializer.Deserialize<AppConfig>(json, jsonOptions) with
+                match JsonSerializer.Deserialize<AppConfig>(json, JsonConfig.options) with
                 | null -> defaults
                 | config -> config
             with _ ->
@@ -135,7 +139,7 @@ module AppConfig =
     let save (config: AppConfig) =
         let path = configPath ()
         let tempPath = path + ".tmp"
-        let json = JsonSerializer.Serialize(config, jsonOptions)
+        let json = JsonSerializer.Serialize(config, JsonConfig.options)
         File.WriteAllText(tempPath, json)
         File.Move(tempPath, path, overwrite = true)
 

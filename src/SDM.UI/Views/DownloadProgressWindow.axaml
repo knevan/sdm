@@ -1,0 +1,116 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SDM.UI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="450" d:DesignHeight="280"
+        x:Class="SDM.UI.Views.DownloadProgressWindow"
+        x:DataType="vm:DownloadProgressViewModel"
+        Title="{Binding WindowTitle}"
+        Width="450" Height="280"
+        MinWidth="400" MinHeight="240"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True">
+
+    <Design.DataContext>
+        <!-- Mock data for designer -->
+        <vm:DownloadProgressViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Bottom Action Bar -->
+        <Border DockPanel.Dock="Bottom"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="10,8">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <Button Grid.Column="0"
+                        Content="Hide"
+                        HotKey="Escape"
+                        Command="{Binding HideWindowCommand}"
+                        Padding="20,5" 
+                        CornerRadius="6"/>
+                <Button Grid.Column="2"
+                        Content="Stop"
+                        Command="{Binding StopDownloadCommand}"
+                        Padding="20,5" 
+                        CornerRadius="6"/>
+                <Button Grid.Column="3"
+                        Content="{Binding PauseResumeLabel}"
+                        Command="{Binding TogglePauseResumeCommand}"
+                        IsEnabled="{Binding CanPauseResume}"
+                        Margin="10,0,0,0"
+                        Padding="15,5"
+                        Classes="primary" />
+            </Grid>
+        </Border>
+
+        <!-- Progress Content -->
+        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                Padding="10">
+            <Grid ColumnDefinitions="Auto,*,Auto"
+                  RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,*">
+
+                <PathIcon Grid.Column="0" Grid.Row="0" Grid.RowSpan="2"
+                          VerticalAlignment="Center"
+                          Margin="10"
+                          Width="32" Height="32"
+                          Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                          Data="M24,4 C35.045695,4 44,12.954305 44,24 C44,35.045695 35.045695,44 24,44 C12.954305,44 4,35.045695 4,24 C4,12.954305 12.954305,4 24,4 Z 
+                          M24,6.5 C14.3350169,6.5 6.5,14.3350169 6.5,24 C6.5,33.6649831 14.3350169,41.5 24,41.5 C33.6649831,41.5 41.5,33.6649831 41.5,24 C41.5,14.3350169 33.6649831,6.5 
+                          24,6.5 Z M32.6338835,17.6161165 C33.1220388,18.1042719 33.1220388,18.8957281 32.6338835,19.3838835 L21.6338835,30.3838835 C21.1457281,30.8720388 20.3542719,30.8720388 
+                          19.8661165,30.3838835 L15.3661165,25.8838835 C14.8779612,25.3957281 14.8779612,24.6042719 15.3661165,24.1161165 C15.8542719,23.6279612 16.6457281,23.6279612 17.1338835,24.1161165 
+                          L20.75,27.732233 L30.8661165,17.6161165 C31.3542719,17.1279612 32.1457281,17.1279612 32.6338835,17.6161165 Z" />
+
+                <TextBlock Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
+                           Text="{Binding FileName}"
+                           Margin="10,10,0,0"
+                           FontSize="16"
+                           TextTrimming="CharacterEllipsis"
+                           FontWeight="SemiBold" />
+
+                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                           Text="{Binding Url}"
+                           Margin="10,2,0,0"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                           TextTrimming="CharacterEllipsis"
+                           FontSize="11" />
+
+                <TextBlock Grid.Row="3" Grid.Column="1"
+                           Text="{Binding FileSizeText}"
+                           Margin="10,5"
+                           FontSize="13" />
+
+                <TextBlock Grid.Row="3" Grid.Column="2"
+                           Text="{Binding SpeedText}"
+                           Margin="10,5"
+                           HorizontalAlignment="Right"
+                           FontSize="13"
+                           FontWeight="SemiBold" />
+
+                <ProgressBar Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                             Value="{Binding ProgressValue}"
+                             IsIndeterminate="{Binding IsIndeterminate}"
+                             Minimum="0" Maximum="100"
+                             MinHeight="6"
+                             Margin="10,5" />
+
+                <TextBlock Grid.Row="5" Grid.Column="1"
+                           Text="{Binding EtaText}"
+                           Margin="10,5"
+                           FontSize="12"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+
+                <TextBlock Grid.Row="5" Grid.Column="2"
+                           Text="{Binding SpeedLimitText}"
+                           Margin="10,5"
+                           HorizontalAlignment="Right"
+                           FontSize="12"
+                           Foreground="{DynamicResource SystemAccentColorLight2}"
+                           Cursor="Hand" />
+            </Grid>
+        </Border>
+    </DockPanel>
+</Window>

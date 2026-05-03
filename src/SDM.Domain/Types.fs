@@ -1,7 +1,6 @@
 namespace SDM.Domain
 
 open System
-open System.Net
 
 /// Units of measure
 [<Measure>]
@@ -14,6 +13,7 @@ type Bps // Represents Bytes per second
 type s // Represents Seconds
 
 /// Represents different hashing algorithms for file integrity verification
+[<Struct>]
 type HashAlgorithm =
     | MD5
     | SHA1
@@ -53,6 +53,15 @@ type Segment =
       Downloaded: int64<B>
       Status: SegmentStatus }
 
+/// Record struct for progress updates
+[<Struct>]
+type ProgressInfo =
+    { Id: Guid
+      Progress: float
+      Speed: int64<Bps>
+      DownloadedBytes: int64<B>
+      TotalBytes: int64<B> option }
+
 /// The main domain record representing a Download Task
 type DownloadEntry =
     { Id: Guid
@@ -81,6 +90,6 @@ type DownloadCommand =
 /// Events emitted by the Engine to notify the UI or other systems
 type DownloadEvent =
     | DownloadStarted of id: Guid
-    | ProgressUpdated of id: Guid * progress: float * speed: int64<Bps>
+    | ProgressUpdated of id: Guid * info: ProgressInfo
     | DownloadFinished of id: Guid * finalPath: string
     | DownloadFailed of id: Guid * error: string

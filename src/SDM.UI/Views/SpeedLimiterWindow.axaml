@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SDM.UI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="400" d:DesignHeight="200"
+        x:Class="SDM.UI.Views.SpeedLimiterWindow"
+        x:DataType="vm:SpeedLimiterViewModel"
+        Title="Speed Limiter"
+        Width="400" Height="200"
+        MinWidth="360" MinHeight="180"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True">
+
+    <Design.DataContext>
+        <vm:SpeedLimiterViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Bottom action bar -->
+        <Border DockPanel.Dock="Bottom"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="10,8">
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="10">
+                <Button Content="OK"
+                        Command="{Binding ApplyCommand}"
+                        Padding="24,5"
+                        Classes="accent" />
+                <Button Content="Cancel"
+                        Command="{Binding CancelCommand}"
+                        HotKey="Escape"
+                        Padding="18,5" />
+            </StackPanel>
+        </Border>
+
+        <!-- Content area -->
+        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                Padding="16,12">
+            <Grid RowDefinitions="Auto,Auto,Auto"
+                  ColumnDefinitions="*,Auto">
+                <!-- Enable speed limit checkbox -->
+                <CheckBox Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                          Content="Enable Speed Limiter"
+                          IsChecked="{Binding IsEnabled}"
+                          Margin="8,4" />
+
+                <!-- Speed limit label -->
+                <TextBlock Grid.Row="1" Grid.Column="0"
+                           Text="Speed limit (KB/s):"
+                           VerticalAlignment="Center"
+                           Margin="8,8" />
+
+                <!-- Speed limit input -->
+                <TextBox Grid.Row="1" Grid.Column="1"
+                         Text="{Binding SpeedLimitText, Mode=TwoWay}"
+                         MinWidth="100"
+                         IsEnabled="{Binding IsSpeedInputActive}"
+                         VerticalContentAlignment="Center"
+                         Margin="4,8"
+                         PlaceholderText="0" />
+
+                <!-- Validation error / summary -->
+                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                           Text="{Binding ValidationError}"
+                           Foreground="#F44336"
+                           FontSize="12"
+                           Margin="8,4"
+                           IsVisible="{Binding ValidationError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </Grid>
+        </Border>
+    </DockPanel>
+</Window>

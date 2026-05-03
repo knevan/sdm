@@ -22,6 +22,9 @@ public partial class App : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // Initialize the JSON resolver
+            // SDM.Infrastructure.JsonSerial.setResolver(SdmJsonContext.Default);
+
             _mainViewModel = new MainWindowViewModel();
 
             desktop.MainWindow = new MainWindow

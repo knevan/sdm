@@ -8,18 +8,22 @@ open System.Threading
 open SDM.Domain
 open SDM.Engine
 open SDM.Infrastructure
-open System.IO
+open System.Threading.Tasks
 
 /// Request to add a new download to the manager
-type AddDownloadRequest =
-    { Url: Uri
-      FileName: string option
-      TargetFolder: string option
-      Headers: Map<string, string>
-      Cookies: string option
-      Auth: AuthInfo
-      Hash: (HashAlgorithm * string) option
-      StartImmediately: bool }
+type AddDownloadRequest(url: Uri) =
+    new() = AddDownloadRequest(Unchecked.defaultof<Uri>)
+
+    member val Url: Uri = url with get, set
+    member val FileName: string = null with get, set
+    member val TargetFolder: string = null with get, set
+    member val Headers: Collections.Generic.IReadOnlyDictionary<string, string> = null with get, set
+    member val Cookies: string = null with get, set
+    member val Auth: AuthInfo = NoAuth with get, set
+    member val Hash: Nullable<struct (HashAlgorithm * string)> = Nullable() with get, set
+    member val StartImmediately: bool = true with get, set
+    static member Create(url: Uri) = AddDownloadRequest(url)
+
 
 /// Result of adding a download
 type AddDownloadResult =
@@ -28,9 +32,8 @@ type AddDownloadResult =
     | InvalidUrl of message: string
 
 /// Manages the full lifecycle of all downloads.
-type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: string, eventHandler: DownloadEvent -> unit)
+type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: string, eventHandler: Action<DownloadEvent>)
     =
-
     // Active coordinators keyed by download ID
     let activeDownloads = ConcurrentDictionary<Guid, DownloadCoordinator>()
 
@@ -49,6 +52,11 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     let httpClient =
         let client = new HttpClient(httpHandler)
         client.Timeout <- Timeout.InfiniteTimeSpan
+        // [TODO] Temporary User Agent
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+        )
+
         client
 
     let storageService = DiskStorage.create ()
@@ -56,6 +64,13 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     /// Create an IHttpService for a specific download entry's auth/headers
     let createHttpService (entry: DownloadEntry) =
         HttpClientService.create HttpClientService.defaultConfig entry.Auth entry.Headers entry.Cookies
+
+    /// Invoke event handler
+    let raiseEvent (evt: DownloadEvent) =
+        try
+            eventHandler.Invoke evt
+        with _ ->
+            ()
 
     /// Derive the file name from the URL if not provided
     let deriveFileName (url: Uri) =
@@ -100,10 +115,14 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
         let config = configStore.Current
 
         let fileName =
-            request.FileName |> Option.defaultWith (fun () -> deriveFileName request.Url)
+            request.FileName
+            |> Option.ofObj
+            |> Option.defaultWith (fun () -> deriveFileName request.Url)
 
         let targetFolder =
-            request.TargetFolder |> Option.defaultValue config.DefaultDownloadFolder
+            request.TargetFolder
+            |> Option.ofObj
+            |> Option.defaultValue config.DefaultDownloadFolder
 
         let targetPath =
             Path.Combine(targetFolder, fileName)
@@ -120,10 +139,19 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
           AddedAt = DateTime.UtcNow
           Status = Queue
           Segments = []
-          Headers = request.Headers
-          Cookies = request.Cookies
+          Headers =
+            match request.Headers with
+            | null -> Map.empty
+            | h ->
+                h
+                |> Seq.fold (fun (m: Map<string, string>) kv -> m.Add(kv.Key, kv.Value)) Map.empty
+          Cookies = request.Cookies |> Option.ofObj
           Auth = request.Auth
-          Hash = request.Hash }
+          Hash =
+            if request.Hash.HasValue then
+                Some(request.Hash.Value |> fun struct (a, h) -> (a, h))
+            else
+                None }
 
     /// Probe the URL and input the entry with server metadata
     let probeAndInput (entry: DownloadEntry) =
@@ -172,7 +200,7 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
 
         | _ -> ()
 
-        eventHandler event
+        raiseEvent event
 
     /// Start a coordinator for the given entry
     let startCoordinator (entry: DownloadEntry) =
@@ -191,9 +219,9 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             (coordinator :> IDisposable).Dispose()
             false
 
-    /// Add a new download. Optionally probes the URL for metadata.
-    member _.Add(request: AddDownloadRequest) =
-        async {
+    /// Add a new download.
+    member _.AddAsync(request: AddDownloadRequest) : Task<AddDownloadResult> =
+        task {
             try
                 let entry = buildEntry request
 

@@ -47,6 +47,11 @@ module Networking =
                     use request = new HttpRequestMessage(method, url)
                     applyAuth request.Headers auth
 
+                    // [TODO] Temporary user agent
+                    request.Headers.UserAgent.ParseAdd(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+                    )
+
                     let! response =
                         client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)
                         |> Async.AwaitTask
@@ -55,13 +60,23 @@ module Networking =
                 }
 
             try
-                let! headResponse = tryProbe HttpMethod.Head
+                // let! headResponse = tryProbe HttpMethod.Head
+
+                // let! response =
+                //     if headResponse.IsSuccessStatusCode then
+                //         async.Return headResponse
+                //     else
+                //         tryProbe HttpMethod.Get
 
                 let! response =
-                    if headResponse.IsSuccessStatusCode then
-                        async.Return headResponse
-                    else
-                        tryProbe HttpMethod.Get
+                    async {
+                        let! res = tryProbe HttpMethod.Head
+
+                        if res.IsSuccessStatusCode then
+                            return res
+                        else
+                            return! tryProbe HttpMethod.Get
+                    }
 
                 use _res = response
 
@@ -77,19 +92,27 @@ module Networking =
                     response.Headers.AcceptRanges.Contains "bytes"
                     || response.StatusCode = Net.HttpStatusCode.PartialContent
 
+                let finalUri =
+                    response.RequestMessage
+                    |> Option.ofObj
+                    |> Option.bind (fun r -> Option.ofObj r.RequestUri)
+                    |> Option.defaultValue url
+
+                let isRedirected = finalUri <> url
+
                 let fileName =
                     response.Content.Headers.ContentDisposition
                     |> Option.ofObj
                     |> Option.bind (fun cd -> Option.ofObj cd.FileName)
                     |> Option.map (fun n -> n.Trim '\"')
 
-                let finalUri, isRedirected =
-                    match response.RequestMessage |> Option.ofObj with
-                    | None -> url, false
-                    | Some req ->
-                        match req.RequestUri |> Option.ofObj with
-                        | None -> url, false
-                        | Some final -> final, final <> url
+                // let finalUri, isRedirected =
+                //     match response.RequestMessage |> Option.ofObj with
+                //     | None -> url, false
+                //     | Some req ->
+                //         match req.RequestUri |> Option.ofObj with
+                //         | None -> url, false
+                //         | Some final -> final, final <> url
 
                 return
                     { Size = size

@@ -1,0 +1,52 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <Style Selector="Button.primary">
+        <!-- Base Properties -->
+        <Setter Property="Background" Value="#01426A"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Padding" Value="20,10"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="ClipToBounds" Value="False"/>
+        
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15"/>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+            </Transitions>
+        </Setter>
+
+        <!-- Shadow/Effect -->
+        <Setter Property="RenderTransform" Value="scale(1)"/>
+    </Style>
+
+    <!-- Hover State (^:pointerover means when the class 'primary' is hovered) -->
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#3b82f6"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    
+    <!-- Hover Scale Animation -->
+    <Style Selector="Button.primary:pointerover">
+        <Setter Property="RenderTransform" Value="scale(1.03)"/>
+        <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+
+    <!-- Pressed State -->
+    <Style Selector="Button.primary:pressed">
+        <Setter Property="RenderTransform" Value="scale(0.97)"/>
+        <Setter Property="Opacity" Value="0.8"/>
+    </Style>
+
+    <!-- Disabled State -->
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#94a3b8"/>
+        <Setter Property="Opacity" Value="0.5"/>
+    </Style>
+</Styles>

@@ -3,17 +3,43 @@
         xmlns:vm="using:SDM.UI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:models="clr-namespace:SDM.UI.Models"
         mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="550"
         x:Class="SDM.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{Binding WindowTitle}"
-        Width="900" Height="550"
+        Width="1200" Height="550"
         MinWidth="700" MinHeight="400"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Background="#0f172a">
 
     <Design.DataContext>
         <vm:MainWindowViewModel />
     </Design.DataContext>
+    
+    <Window.Styles>
+        <Style Selector="ProgressBar">
+            <Setter Property="Height" Value="8"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="ClipToBounds" Value="False"/>
+            <Setter Property="Background" Value="#1e293b"/>
+        </Style>
+        <Style Selector="ProgressBar.downloading">
+            <Setter Property="Foreground" Value="#3b82f6" />
+            <Setter Property="Background" Value="#1e293b"/>
+        </Style>
+        <Style Selector="ProgressBar.completed">
+            <Setter Property="Foreground" Value="#22c55e"/>
+        </Style>
+        <Style Selector="ProgressBar.paused">
+            <Setter Property="Foreground" Value="#64748b"/>
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+        <Style Selector="TextBlock.status-text.paused">
+            <Setter Property="Foreground" Value="#94a3b8"/>
+            <Setter Property="Opacity" Value="0.6"/>
+        </Style>
+    </Window.Styles>
 
     <DockPanel>
         <!-- Top Toolbar -->
@@ -26,6 +52,7 @@
                 <!-- Left toolbar buttons -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
                     <Button Name="BtnNewDownload"
+                            Classes="primary"
                             Content="＋ New"
                             Click="BtnNewDownload_Click"
                             Padding="12,6"
@@ -33,20 +60,28 @@
                     <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
                                Margin="4,4" />
                     <Button Content="⏸ Pause"
+                            Classes="primary"
                             Command="{Binding PauseDownloadCommand}"
                             IsEnabled="{Binding CanPause}"
-                            Padding="10,6" />
+                            Padding="5,6" />
+                    <Rectangle Width="0" Fill="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                               Margin="2,2" />
                     <Button Content="▶ Resume"
+                            Classes="primary"
                             Command="{Binding ResumeDownloadCommand}"
                             IsEnabled="{Binding CanResume}"
                             Padding="10,6" />
+                    <Rectangle Width="0" Fill="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                               Margin="2,2" />
                     <Button Content="✕ Cancel"
+                            Classes="primary"
                             Command="{Binding CancelDownloadCommand}"
                             IsEnabled="{Binding CanCancel}"
                             Padding="10,6" />
                     <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
                                Margin="4,4" />
                     <Button Content="🗑 Remove"
+                            Classes="primary"
                             Command="{Binding RemoveDownloadCommand}"
                             IsEnabled="{Binding CanRemove}"
                             Padding="10,6" />
@@ -57,6 +92,7 @@
                          PlaceholderText="Search downloads..."
                          Width="200"
                          Margin="4,0"
+                         CornerRadius="8"
                          VerticalAlignment="Center" />
             </Grid>
         </Border>
@@ -100,27 +136,73 @@
                   SelectionMode="Single"
                   GridLinesVisibility="Horizontal"
                   BorderThickness="0"
-                  RowHeight="36">
+                  RowHeight="40">
             <DataGrid.Columns>
+                <!-- Selection Checkbox -->
+                <DataGridTemplateColumn>
+                    <DataGridTemplateColumn.Header>
+                        <CheckBox HorizontalAlignment="Center" 
+                                  VerticalAlignment="Center"
+                                  Margin="15,0,0,0" 
+                                  Padding="0" />
+                    </DataGridTemplateColumn.Header>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" 
+                                      HorizontalAlignment="Center" 
+                                      VerticalAlignment="Center" 
+                                      Margin="0" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <!-- File Name -->
                 <DataGridTextColumn Header="Name"
                                     Binding="{Binding FileName}"
-                                    Width="2*"
-                                    MinWidth="200" />
+                                    Width="1.5*"
+                                    MinWidth="180" />
                 <!-- Size -->
                 <DataGridTextColumn Header="Size"
                                     Binding="{Binding SizeText}"
                                     Width="80" />
-                <!-- Progress -->
-                <DataGridTemplateColumn Header="Progress" Width="120" MinWidth="80">
+                <!-- Progress & Status -->
+                <DataGridTemplateColumn Header="Status" Width="*">
                     <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Grid Margin="4,0">
-                                <ProgressBar Value="{Binding ProgressInt}"
-                                             Minimum="0" Maximum="100"
-                                             Height="6"
-                                             VerticalAlignment="Center" />
-                            </Grid>
+                        <DataTemplate x:DataType="models:DownloadItemModel">
+                            <Panel Margin="12, 0">
+                                <!-- Progress Bar View: Visible when Downloading, Paused, or Completed -->
+                                <DockPanel IsVisible="{Binding ShowProgressBar}" 
+                                           VerticalAlignment="Center"
+                                           LastChildFill="True">
+                                    
+                                    <TextBlock DockPanel.Dock="Right" 
+                                               Text="{Binding ProgressInt, StringFormat={}{0}%}" 
+                                               Width="50"
+                                               FontSize="12" 
+                                               FontWeight="Bold"
+                                               TextAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               Margin="10,0,0,0"
+                                               Classes.paused="{Binding IsPaused}" />
+                                    <ProgressBar Value="{Binding ProgressInt}" 
+                                                 Minimum="0" Maximum="100" 
+                                                 Height="7" 
+                                                 VerticalAlignment="Center"
+                                                 HorizontalAlignment="Stretch"
+                                                 Margin="15,0,15,0"
+                                                 CornerRadius="5"
+                                                 ClipToBounds="False"
+                                                 Classes.downloading="{Binding IsDownloading}"
+                                                 Classes.paused="{Binding IsPaused}"
+                                                 Classes.completed="{Binding IsCompleted}" />
+                                </DockPanel>
+                                
+                                <TextBlock Text="{Binding StatusText}"
+                                           IsVisible="{Binding ShowStatusText}"
+                                           VerticalAlignment="Center"
+                                           FontWeight="Medium"
+                                           FontSize="13"
+                                           Opacity="0.6"/>
+                            </Panel>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -128,15 +210,11 @@
                 <DataGridTextColumn Header="Speed"
                                     Binding="{Binding SpeedText}"
                                     Width="90" />
-                <!-- Status -->
-                <DataGridTextColumn Header="Status"
-                                    Binding="{Binding StatusText}"
-                                    Width="*"
-                                    MinWidth="120" />
+
                 <!-- Date Added -->
                 <DataGridTextColumn Header="Added"
                                     Binding="{Binding DateText}"
-                                    Width="120" />
+                                    Width= "90" />
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>

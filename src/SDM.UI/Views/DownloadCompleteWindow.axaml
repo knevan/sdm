@@ -1,0 +1,86 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SDM.UI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="420" d:DesignHeight="200"
+        x:Class="SDM.UI.Views.DownloadCompleteWindow"
+        x:DataType="vm:DownloadCompleteViewModel"
+        Title="Download Complete"
+        Width="420" Height="200"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
+        Topmost="True">
+
+    <Design.DataContext>
+        <vm:DownloadCompleteViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Bottom action bar -->
+        <Border DockPanel.Dock="Bottom"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="8,6">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <!-- "Don't show again" link-style text -->
+                <TextBlock Grid.Column="0"
+                           Text="Don't show this again"
+                           VerticalAlignment="Center"
+                           Margin="8,0,0,0"
+                           FontSize="12"
+                           Foreground="{DynamicResource SystemAccentColorLight2}"
+                           Cursor="Hand"
+                           PointerPressed="DontShowAgain_PointerPressed" />
+
+                <Button Grid.Column="2"
+                        Content="Open Folder"
+                        Command="{Binding OpenFolderCommand}"
+                        Padding="12,5"
+                        Margin="0,4,8,4" />
+
+                <Button Grid.Column="3"
+                        Content="Open File"
+                        Command="{Binding OpenFileCommand}"
+                        Padding="20,5"
+                        Margin="0,4,8,4"
+                        FontWeight="SemiBold" />
+            </Grid>
+        </Border>
+
+        <!-- Content area -->
+        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                Padding="16,12">
+            <Grid ColumnDefinitions="Auto,*"
+                  RowDefinitions="Auto,Auto,*">
+
+                <!-- Success icon -->
+                <PathIcon Grid.Column="0" Grid.Row="0" Grid.RowSpan="2"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Center"
+                          Margin="8,0,16,0"
+                          Width="36" Height="36"
+                          Foreground="#4CAF50"
+                          Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+
+                <!-- File name -->
+                <TextBlock Grid.Row="0" Grid.Column="1"
+                           Text="{Binding FileName}"
+                           Margin="0,8,8,0"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" />
+
+                <!-- Folder path -->
+                <TextBlock Grid.Row="1" Grid.Column="1"
+                           Text="{Binding LocationDisplay}"
+                           Margin="0,4,8,0"
+                           FontSize="12"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </Border>
+    </DockPanel>
+</Window>
