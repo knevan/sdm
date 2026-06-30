@@ -86,6 +86,8 @@ type DownloadCommand =
     | Cancel
     | ForceRecheck
     | UpdateProgress of totalDownloaded: int64<B> * speed: int64<Bps>
+    | SegmentCompleted of segmentId: Guid * downloaded: int64<B>
+    | SegmentFailed of segmentId: Guid * error: string
 
 /// Events emitted by the Engine to notify the UI or other systems
 type DownloadEvent =
@@ -93,3 +95,4 @@ type DownloadEvent =
     | ProgressUpdated of id: Guid * info: ProgressInfo
     | DownloadFinished of id: Guid * finalPath: string
     | DownloadFailed of id: Guid * error: string
+    | DownloadPaused of id: Guid

@@ -1,9 +1,14 @@
 <Solution>
-  <Folder Name="/src/">
-    <Project Path="src/SDM.Domain/SDM.Domain.fsproj" />
-    <Project Path="src/SDM.Engine/SDM.Engine.fsproj" />
-    <Project Path="src/SDM.Infrastructure/SDM.Infrastructure.fsproj" />
-    <Project Path="src/SDM.Application/SDM.Application.fsproj" />
-    <Project Path="src/SDM.UI/SDM.UI.csproj" />
-  </Folder>
+    <Folder Name="/src/">
+        <Project Path="src/SDM.Domain/SDM.Domain.fsproj"/>
+        <Project Path="src/SDM.Engine/SDM.Engine.fsproj"/>
+        <Project Path="src/SDM.Infrastructure/SDM.Infrastructure.fsproj"/>
+        <Project Path="src/SDM.Application/SDM.Application.fsproj"/>
+        <Project Path="src/SDM.UI/SDM.UI.fsproj"/>
+    </Folder>
+
+    <Folder Name="/Solution Items/">
+        <File Path="Directory.Build.props"/>
+        <File Path="Directory.Packages.props"/>
+    </Folder>
 </Solution>

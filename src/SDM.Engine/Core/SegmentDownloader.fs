@@ -5,13 +5,26 @@ open System
 open System.Buffers
 open System.Threading
 
-/// Segment Downloader handles the downloading of a specific chunk of a file.
-type SegmentDownloader(segment: Segment, url: Uri, targetPath: string, http: IHttpService, storage: IStorageService) =
+/// Segment Downloader actor that downloads a single file chunk via HTTP Range requests.
+/// Writes to a temporary .part file, not the final target path.
+/// Reports progress and completion/failure via injected callbacks.
+type SegmentDownloader
+    (
+        segment: Segment,
+        url: Uri,
+        tempFilePath: string,
+        http: IHttpService,
+        storage: IStorageService,
+        onProgress: int64<B> -> unit,
+        onSegmentCompleted: Guid * int64<B> -> unit,
+        onSegmentFailed: Guid * string -> unit
+    ) =
+
     let mutable currentDownloaded = segment.Downloaded
-    let cts = new CancellationTokenSource()
+    let mutable cts = new CancellationTokenSource()
 
     let downloadLoop (inbox: MailboxProcessor<DownloadCommand>) =
-        let rec loop status =
+        let rec loop (status: SegmentStatus) =
             async {
                 let! msg = inbox.Receive()
 
@@ -30,12 +43,9 @@ type SegmentDownloader(segment: Segment, url: Uri, targetPath: string, http: IHt
 
                         response.EnsureSuccessStatusCode() |> ignore
 
-                        // Stream data from the network directly
                         use! networkStream = response.Content.ReadAsStreamAsync cts.Token |> Async.AwaitTask
 
-                        let bufferSize = 64 * 1024
-
-                        let buffer = ArrayPool<byte>.Shared.Rent bufferSize
+                        let buffer = ArrayPool<byte>.Shared.Rent(64 * 1024)
 
                         try
                             let mutable continueLoop = true
@@ -46,31 +56,41 @@ type SegmentDownloader(segment: Segment, url: Uri, targetPath: string, http: IHt
                                     |> Async.AwaitTask
 
                                 if bytesRead = 0 then
-                                    // End of stream reached, termination condition
                                     continueLoop <- false
                                 else
                                     do!
                                         storage.WriteSegmentAsync(
-                                            targetPath,
+                                            tempFilePath,
                                             segment.Offset + currentDownloaded,
                                             buffer.AsMemory(0, bytesRead),
                                             cts.Token
                                         )
 
-                                    // Update internal tracking of downloaded progress
                                     currentDownloaded <- currentDownloaded + int64 bytesRead * 1L<B>
+                                    onProgress currentDownloaded
+
+                            if not cts.IsCancellationRequested then
+                                onSegmentCompleted (segment.id, currentDownloaded)
 
                             return! loop Finished
                         finally
                             ArrayPool<byte>.Shared.Return buffer
                     with
+                    | :? OperationCanceledException when msg = Pause || msg = Cancel -> ()
                     | :? OperationCanceledException -> return! loop Pending
-                    | ex -> return! loop (Failed ex.Message)
+                    | ex ->
+                        onSegmentFailed (segment.id, ex.Message)
+                        return! loop (Failed ex.Message)
 
-                | Pause
+                | Pause ->
+                    cts.Cancel()
+                    cts.Dispose()
+                    cts <- new CancellationTokenSource()
+                    return! loop Pending
+
                 | Cancel ->
                     cts.Cancel()
-                    return! loop (if msg = Pause then Pending else Failed "Cancelled by user")
+                    return! loop (Failed "Cancelled by user")
 
                 | _ -> return! loop status
             }
@@ -79,10 +99,8 @@ type SegmentDownloader(segment: Segment, url: Uri, targetPath: string, http: IHt
 
     let agent = MailboxProcessor.Start downloadLoop
 
-    /// Post a command to the segment downloader agent
-    member _.Post cmd = agent.Post cmd
+    member _.Post(cmd: DownloadCommand) = agent.Post cmd
 
-    /// Property to track current downloaded bytes in real-time
     member _.CurrentProgress = currentDownloaded
 
     interface IDisposable with

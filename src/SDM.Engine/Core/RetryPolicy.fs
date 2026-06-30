@@ -17,7 +17,7 @@ module RetryPolicy =
           MaxDelayMs = 30000 }
 
     /// Calculate delay with exponential backoff + jitter
-    let private calculateDelay (config: RetryConfig) (attempt: int) =
+    let calculateDelay (config: RetryConfig) (attempt: int) =
         let baseDelay = float config.BaseDelayMs * Math.Pow(2.0, float attempt)
         let capped = min baseDelay (float config.MaxDelayMs)
         let jitter = capped * 0.25 * (Random.Shared.NextDouble() * 2.0 - 1.0)

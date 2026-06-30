@@ -48,6 +48,24 @@ module DownloadStore =
         use conn = new SqliteConnection(connectionString)
         conn.Open()
 
+        // Enable WAL mode for concurrent reads/writes without locking
+        // WAL allows multiple readers + one writer simultaneously
+        use walCmd = conn.CreateCommand()
+        walCmd.CommandText <- "PRAGMA journal_mode=WAL;"
+        walCmd.ExecuteNonQuery() |> ignore
+
+        use syncCmd = conn.CreateCommand()
+        syncCmd.CommandText <- "PRAGMA synchronous=NORMAL;"
+        syncCmd.ExecuteNonQuery() |> ignore
+
+        use cacheCmd = conn.CreateCommand()
+        cacheCmd.CommandText <- "PRAGMA cache_size=-64000;"
+        cacheCmd.ExecuteNonQuery() |> ignore
+
+        use busytimeoutCmd = conn.CreateCommand()
+        busytimeoutCmd.CommandText <- "PRAGMA busy_timeout=5000;"
+        busytimeoutCmd.ExecuteNonQuery() |> ignore
+
         use cmd = conn.CreateCommand()
 
         cmd.CommandText <-

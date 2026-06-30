@@ -5,25 +5,31 @@ open System.Collections.Concurrent
 open System.IO
 open System.Net.Http
 open System.Threading
+open System.Threading.Tasks
 open SDM.Domain
 open SDM.Engine
 open SDM.Infrastructure
-open System.Threading.Tasks
 
-/// Request to add a new download to the manager
-type AddDownloadRequest(url: Uri) =
-    new() = AddDownloadRequest(Unchecked.defaultof<Uri>)
+/// Immutable request to add a new download to the manager
+type AddDownloadRequest =
+    { Url: Uri
+      FileName: string option
+      TargetFolder: string option
+      Headers: Map<string, string>
+      Cookies: string option
+      Auth: AuthInfo
+      Hash: (HashAlgorithm * string) option
+      StartImmediately: bool }
 
-    member val Url: Uri = url with get, set
-    member val FileName: string = null with get, set
-    member val TargetFolder: string = null with get, set
-    member val Headers: Collections.Generic.IReadOnlyDictionary<string, string> = null with get, set
-    member val Cookies: string = null with get, set
-    member val Auth: AuthInfo = NoAuth with get, set
-    member val Hash: Nullable<struct (HashAlgorithm * string)> = Nullable() with get, set
-    member val StartImmediately: bool = true with get, set
-    static member Create(url: Uri) = AddDownloadRequest(url)
-
+    static member Create(url: Uri) =
+        { Url = url
+          FileName = None
+          TargetFolder = None
+          Headers = Map.empty
+          Cookies = None
+          Auth = NoAuth
+          Hash = None
+          StartImmediately = true }
 
 /// Result of adding a download
 type AddDownloadResult =
@@ -34,45 +40,38 @@ type AddDownloadResult =
 /// Manages the full lifecycle of all downloads.
 type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: string, eventHandler: Action<DownloadEvent>)
     =
-    // Active coordinators keyed by download ID
-    let activeDownloads = ConcurrentDictionary<Guid, DownloadCoordinator>()
+    // Single shared SocketsHttpHandler for all downloads — connection pooling
+    let sharedHandler =
+        HttpClientService.createSharedHandler HttpClientService.defaultConfig
 
-    let httpHandler =
-        let config = configStore.Current
-        let handler = new SocketsHttpHandler()
-        handler.ConnectTimeout <- TimeSpan.FromSeconds(float config.NetworkTimeoutSeconds)
-        handler.MaxConnectionsPerServer <- 16
-        handler.AllowAutoRedirect <- true
-        handler.MaxAutomaticRedirections <- 10
-        handler.PooledConnectionLifetime <- TimeSpan.FromMinutes 5.0
-        handler.PooledConnectionIdleTimeout <- TimeSpan.FromMinutes 2.0
-        handler.AutomaticDecompression <- Net.DecompressionMethods.All
-        handler
-
-    let httpClient =
-        let client = new HttpClient(httpHandler)
+    // Per-download HttpClient instances (reused for probing)
+    let probeHttpClient =
+        let client = new HttpClient(sharedHandler, disposeHandler = false)
         client.Timeout <- Timeout.InfiniteTimeSpan
-        // [TODO] Temporary User Agent
+
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
         )
 
         client
 
+    // Active coordinators keyed by download ID
+    let activeDownloads = ConcurrentDictionary<Guid, DownloadCoordinator>()
+
     let storageService = DiskStorage.create ()
 
-    /// Create an IHttpService for a specific download entry's auth/headers
+    /// Create an IHttpService for a specific download entry's auth/headers, backed by the shared handler
     let createHttpService (entry: DownloadEntry) =
-        HttpClientService.create HttpClientService.defaultConfig entry.Auth entry.Headers entry.Cookies
+        HttpClientService.createWithHandler sharedHandler entry.Auth entry.Headers entry.Cookies
 
-    /// Invoke event handler
+    /// Invoke user-facing event handler
     let raiseEvent (evt: DownloadEvent) =
         try
             eventHandler.Invoke evt
         with _ ->
             ()
 
-    /// Derive the file name from the URL if not provided
+    /// Derive file name from URL
     let deriveFileName (url: Uri) =
         let lastSegment = url.Segments |> Array.last
         let decoded = Uri.UnescapeDataString lastSegment
@@ -82,7 +81,7 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
         else
             Path.GetFileName decoded |> Option.ofObj |> Option.defaultValue decoded
 
-    /// Resolve file name conflicts by appending
+    /// Resolve file name conflicts
     let resolveConflict (path: string) (mode: FileConflictMode) =
         match mode with
         | Overwrite -> path
@@ -110,25 +109,22 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
 
                 findAvailable 1
 
-    /// Build a DownloadEntry from an add request
+    /// Build a DownloadEntry from an AddDownloadRequest
     let buildEntry (request: AddDownloadRequest) =
         let config = configStore.Current
 
         let fileName =
-            request.FileName
-            |> Option.ofObj
-            |> Option.defaultWith (fun () -> deriveFileName request.Url)
+            request.FileName |> Option.defaultWith (fun () -> deriveFileName request.Url)
 
         let targetFolder =
-            request.TargetFolder
-            |> Option.ofObj
-            |> Option.defaultValue config.DefaultDownloadFolder
+            request.TargetFolder |> Option.defaultValue config.DefaultDownloadFolder
 
         let targetPath =
             Path.Combine(targetFolder, fileName)
             |> fun p -> resolveConflict p config.FileConflictMode
 
         let tempFolder = Path.Combine(config.TempFolder, Guid.NewGuid().ToString("N"))
+        let tempFilePath = Path.Combine(tempFolder, $"{fileName}.sdm.part")
 
         { Id = Guid.NewGuid()
           Url = request.Url
@@ -139,27 +135,17 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
           AddedAt = DateTime.UtcNow
           Status = Queue
           Segments = []
-          Headers =
-            match request.Headers with
-            | null -> Map.empty
-            | h ->
-                h
-                |> Seq.fold (fun (m: Map<string, string>) kv -> m.Add(kv.Key, kv.Value)) Map.empty
-          Cookies = request.Cookies |> Option.ofObj
+          Headers = request.Headers
+          Cookies = request.Cookies
           Auth = request.Auth
-          Hash =
-            if request.Hash.HasValue then
-                Some(request.Hash.Value |> fun struct (a, h) -> (a, h))
-            else
-                None }
+          Hash = request.Hash }
 
-    /// Probe the URL and input the entry with server metadata
+    /// Probe the URL and update the entry with server metadata
     let probeAndInput (entry: DownloadEntry) =
         async {
-            let! probe = Networking.probeUrl httpClient entry.Url entry.Auth
+            let! probe = Networking.probeUrl probeHttpClient entry.Url entry.Auth
 
             let inputFileName = probe.FileName |> Option.defaultValue entry.FileName
-
             let inputUrl = if probe.IsRedirected then probe.FinalUri else entry.Url
 
             let targetDir =
@@ -177,40 +163,72 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
                         |> fun p -> resolveConflict p configStore.Current.FileConflictMode }
         }
 
-    /// Internal event handler that wraps user handler + persistence side effects
-    let internalEventHandler (entry: DownloadEntry ref) (event: DownloadEvent) =
+    /// Internal state change callback from DownloadCoordinator when entry state changes
+    let onCoordinatorStateChange (entry: DownloadEntry) =
+        DownloadStore.upsert connectionString entry
+
+    /// Internal event handler that wraps user handler + persistence + lifecycle cleanup
+    let createCoordinatorEventHandler (entryRef: DownloadEntry ref) (event: DownloadEvent) =
         match event with
+        | DownloadStarted _ ->
+            let updated =
+                { entryRef.Value with
+                    Status = Downloading(0L<Bps>, TimeSpan.Zero) }
+
+            DownloadStore.upsert connectionString updated
+            entryRef.Value <- updated
+
+        | ProgressUpdated(id, info) ->
+            let updated =
+                { entryRef.Value with
+                    Status = Downloading(info.Speed, TimeSpan.Zero) }
+
+            DownloadStore.upsert connectionString updated
+            entryRef.Value <- updated
+
         | DownloadFinished(id, finalPath) ->
             let updated =
-                { entry.Value with
+                { entryRef.Value with
                     Status = Completed DateTime.UtcNow }
 
             DownloadStore.upsert connectionString updated
-            entry.Value <- updated
+            entryRef.Value <- updated
             activeDownloads.TryRemove id |> ignore
 
         | DownloadFailed(id, error) ->
             let updated =
-                { entry.Value with
+                { entryRef.Value with
                     Status = Error("DOWNLOAD_FAILED", error) }
 
             DownloadStore.upsert connectionString updated
-            entry.Value <- updated
+            entryRef.Value <- updated
             activeDownloads.TryRemove id |> ignore
 
-        | _ -> ()
+        | DownloadPaused id ->
+            let updated = { entryRef.Value with Status = Paused }
+            DownloadStore.upsert connectionString updated
+            entryRef.Value <- updated
 
         raiseEvent event
 
-    /// Start a coordinator for the given entry
+    /// Start a coordinator for the given download entry
     let startCoordinator (entry: DownloadEntry) =
         let entryRef = ref entry
         let httpService = createHttpService entry
 
-        storageService.EnsureDirectory(Path.Combine(entry.TempFolderPath, "placeholder"))
+        // Create temp directory and derive temp file path
+        ensureDirectory entry.TempFolderPath
+        let tempFilePath = Path.Combine(entry.TempFolderPath, $"{entry.FileName}.sdm.part")
 
         let coordinator =
-            new DownloadCoordinator(entry, httpService, storageService, internalEventHandler entryRef)
+            new DownloadCoordinator(
+                entry,
+                tempFilePath,
+                httpService,
+                storageService,
+                createCoordinatorEventHandler entryRef,
+                onCoordinatorStateChange
+            )
 
         if activeDownloads.TryAdd(entry.Id, coordinator) then
             coordinator.Start()
@@ -219,7 +237,7 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             (coordinator :> IDisposable).Dispose()
             false
 
-    /// Add a new download.
+    /// Add a new download
     member _.AddAsync(request: AddDownloadRequest) : Task<AddDownloadResult> =
         task {
             try
@@ -284,7 +302,7 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             true
         | false, _ -> false
 
-    /// Remove a download completely (from DB + option file cleanup)
+    /// Remove a download completely (from DB + optional file cleanup)
     member this.Remove(id: Guid, deleteFiles: bool) =
         this.Cancel id |> ignore
 
@@ -315,7 +333,7 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     /// Check if a download is currently active
     member _.IsActive(id: Guid) = activeDownloads.ContainsKey id
 
-    /// Get the count of active download
+    /// Get the count of active downloads
     member _.ActiveCount = activeDownloads.Count
 
     /// Stop all active downloads gracefully
@@ -329,5 +347,5 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     interface IDisposable with
         member this.Dispose() =
             this.StopAll()
-            httpClient.Dispose()
-            httpHandler.Dispose()
+            probeHttpClient.Dispose()
+            sharedHandler.Dispose()

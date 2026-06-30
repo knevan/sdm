@@ -1,30 +1,30 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>preview</LangVersion>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>preview</LangVersion>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
-    <Optimize>true</Optimize>
-    <Tailcalls>true</Tailcalls>
-  </PropertyGroup>
+        <Optimize>true</Optimize>
+        <Tailcalls>true</Tailcalls>
+    </PropertyGroup>
 
-  <ItemGroup>
-    <Compile Include="Configuration.fs" />
-    <Compile Include="Persistence/DownloadStore.fs" />
-  </ItemGroup>
-  
-  <ItemGroup>
-    <ProjectReference Include="..\SDM.Domain\SDM.Domain.fsproj" />
-    <PackageReference Include="FSharp.Core" Version="10.1.203" />
-    <PackageReference Include="FSharp.SystemTextJson" Version="1.4.36" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
-  </ItemGroup>
+    <ItemGroup>
+        <Compile Include="Configuration.fs"/>
+        <Compile Include="Persistence/DownloadStore.fs"/>
+    </ItemGroup>
 
-  <ItemGroup>
-    <TrimmerRootAssembly Include="FSharp.SystemTextJson" />
-    <TrimmerRootAssembly Include="Configuration.fs" />
-    <TrimmerRootAssembly Include="Persistence/DownloadStore.fs" />
-  </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\SDM.Domain\SDM.Domain.fsproj"/>
+        <PackageReference Include="FSharp.Core"/>
+        <PackageReference Include="FSharp.SystemTextJson"/>
+        <PackageReference Include="Microsoft.Data.Sqlite"/>
+    </ItemGroup>
 
-  <Import Project="..\..\.paket\Paket.Restore.targets" />
+    <ItemGroup>
+        <TrimmerRootAssembly Include="FSharp.SystemTextJson"/>
+        <TrimmerRootAssembly Include="Configuration.fs"/>
+        <TrimmerRootAssembly Include="Persistence/DownloadStore.fs"/>
+    </ItemGroup>
+
+    <Import Project="..\..\.paket\Paket.Restore.targets"/>
 </Project>

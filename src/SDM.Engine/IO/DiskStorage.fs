@@ -5,16 +5,19 @@ open System
 open System.Threading
 open SDM.Domain
 
+/// Utility module for directory operations available at namespace level
+[<AutoOpen>]
+module DiskUtils =
+    let ensureDirectory (path: string) =
+        let dir = Path.GetDirectoryName path
+        match dir with
+        | null -> ()
+        | d when String.IsNullOrEmpty d -> ()
+        | d -> Directory.CreateDirectory d |> ignore
+
 /// Thread-safe disk I/O using RandomAccess API for zero-copy
 /// writes at arbitrary offsets (segment-based downloads)
 module DiskStorage =
-    /// Ensure directory exists, creating all intermediate directories if needed
-    let ensureDirectory (path: string) =
-        match Path.GetDirectoryName path with
-        | null -> ()
-        | dir when String.IsNullOrEmpty dir -> ()
-        | dir -> Directory.CreateDirectory dir |> ignore
-
     /// Write a data chunk to a specific offset in the target file using
     /// RandomAccess for seeking without holding a persistent FileStream.
     let writeSegmentAsync (path: string) (offset: int64<B>) (data: ReadOnlyMemory<byte>) (ct: CancellationToken) =
