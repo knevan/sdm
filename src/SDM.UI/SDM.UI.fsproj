@@ -17,7 +17,6 @@
     <ItemGroup>
         <!-- Avalonia 11 core -->
         <PackageReference Include="Avalonia"/>
-        <PackageReference Include="Avalonia.Controls.DataGrid"/>
         <PackageReference Include="Avalonia.Desktop"/>
         <PackageReference Include="Avalonia.Themes.Fluent"/>
         <PackageReference Include="Avalonia.Fonts.Inter"/>
@@ -30,6 +29,12 @@
         <!-- F# core packages -->
         <PackageReference Include="FSharp.Core"/>
         <PackageReference Include="FSharp.SystemTextJson"/>
+
+        <!-- Serilog structured logging -->
+        <PackageReference Include="Serilog"/>
+        <PackageReference Include="Serilog.Sinks.Console"/>
+        <PackageReference Include="Serilog.Sinks.File"/>
+        <PackageReference Include="Destructurama.FSharp"/>
     </ItemGroup>
 
     <!-- F# source file compilation order -->
@@ -39,12 +44,7 @@
         <Compile Include="Theme.fs"/>
         <Compile Include="Types.fs"/>
         <Compile Include="State.fs"/>
-        <Compile Include="Views\MainWindow.fs"/>
-        <Compile Include="Views\DeleteConfirmWindow.fs"/>
-        <Compile Include="Views\SpeedLimiterWindow.fs"/>
-        <Compile Include="Views\DownloadCompleteWindow.fs"/>
-        <Compile Include="Views\NewDownloadDialog.fs"/>
-        <Compile Include="Views\DownloadProgressWindow.fs"/>
+        <Compile Include="Views\Shell.fs"/>
         <Compile Include="App.fs"/>
         <Compile Include="Program.fs"/>
     </ItemGroup>

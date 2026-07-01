@@ -6,8 +6,8 @@ open System.Buffers
 open System.Threading
 
 /// Segment Downloader actor that downloads a single file chunk via HTTP Range requests.
-/// Writes to a temporary .part file, not the final target path.
-/// Reports progress and completion/failure via injected callbacks.
+/// Writes to a temporary .part file. Integrates with SpeedLimiter for bandwidth throttling
+/// and reports progress via injected callbacks.
 type SegmentDownloader
     (
         segment: Segment,
@@ -15,6 +15,7 @@ type SegmentDownloader
         tempFilePath: string,
         http: IHttpService,
         storage: IStorageService,
+        speedLimiter: SpeedLimiter.ThrottleState,
         onProgress: int64<B> -> unit,
         onSegmentCompleted: Guid * int64<B> -> unit,
         onSegmentFailed: Guid * string -> unit
@@ -58,6 +59,9 @@ type SegmentDownloader
                                 if bytesRead = 0 then
                                     continueLoop <- false
                                 else
+                                    // Bandwidth throttling
+                                    do! SpeedLimiter.consumeAsync speedLimiter bytesRead cts.Token
+
                                     do!
                                         storage.WriteSegmentAsync(
                                             tempFilePath,

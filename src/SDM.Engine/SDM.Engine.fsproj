@@ -12,16 +12,17 @@
         <Compile Include="Abstractions.fs"/>
         <Compile Include="Core/RetryPolicy.fs"/>
         <Compile Include="IO/DiskStorage.fs"/>
-        <Compile Include="Core/SegmentDownloader.fs"/>
         <Compile Include="Core/SpeedLimiter.fs"/>
-        <Compile Include="Core/DownloadCoordinator.fs"/>
         <Compile Include="Core/HashVerifier.fs"/>
+        <Compile Include="Core/SegmentDownloader.fs"/>
+        <Compile Include="Core/DownloadCoordinator.fs"/>
         <Compile Include="Http/Networking.fs"/>
         <Compile Include="Http/HttpClientService.fs"/>
     </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="FSharp.Core"/>
+        <PackageReference Include="Serilog"/>
         <ProjectReference Include="..\SDM.Domain\SDM.Domain.fsproj"/>
     </ItemGroup>
 </Project>

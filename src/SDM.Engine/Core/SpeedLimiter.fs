@@ -25,12 +25,19 @@ module SpeedLimiter =
           LastRefillTick = Environment.TickCount64
           WakeSignal = new ManualResetEventSlim false }
 
-    /// Update the speed limit dynamically
+    /// Update the speed limit dynamically.
+    /// Resets available tokens to the new limit to prevent burst from stale high-limit tokens.
     let updateLimit (state: ThrottleState) (limitKbps: int) =
-        state.WakeSignal.Set()
+        let newLimit = int64 limitKbps * 1024L
+        state.WakeSignal.Set() |> ignore
+
+        // Clamp available tokens to the new limit — prevents burst at old higher rate
+        let clamped = System.Math.Min(state.AvailableTokens, newLimit)
 
         { state with
-            LimitBps = int64 limitKbps * 1024L }
+            LimitBps = newLimit
+            AvailableTokens = clamped
+            LastRefillTick = Environment.TickCount64 }
 
     /// Consume tokens for the given byte count, blocking if
     /// Returns immediately if no speed limit is set.

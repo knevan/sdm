@@ -4,6 +4,8 @@ open SDM.Domain
 open System
 open System.Net.Http.Headers
 open System.Net.Http
+open System.Threading
+open Serilog
 
 exception DownloadNetworkException of string * System.Net.HttpStatusCode
 
@@ -17,6 +19,8 @@ type ProbeResult =
       FinalUri: Uri }
 
 module Networking =
+
+    let private log = Log.ForContext("Source", "Networking")
 
     /// Helper apply atuhentication to header
     let private applyAuth (headers: HttpRequestHeaders) (auth: AuthInfo) =
@@ -39,34 +43,27 @@ module Networking =
         applyAuth request.Headers auth
         request
 
-    /// Probes the URL to get file information with robust fallbacks
-    let probeUrl (client: HttpClient) (url: Uri) (auth: AuthInfo) =
-        async {
-            let tryProbe (method: HttpMethod) =
-                async {
-                    use request = new HttpRequestMessage(method, url)
-                    applyAuth request.Headers auth
+    /// Probes the URL to get file information with robust fallbacks and retry.
+    let probeUrl (client: HttpClient) (url: Uri) (auth: AuthInfo) (ct: CancellationToken) =
+        let tryProbe (method: HttpMethod) =
+            async {
+                use request = new HttpRequestMessage(method, url)
+                applyAuth request.Headers auth
 
-                    // [TODO] Temporary user agent
-                    request.Headers.UserAgent.ParseAdd(
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
-                    )
+                request.Headers.UserAgent.ParseAdd(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+                )
 
-                    let! response =
-                        client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)
-                        |> Async.AwaitTask
+                let! response =
+                    client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
+                    |> Async.AwaitTask
 
-                    return response
-                }
+                return response
+            }
 
-            try
-                // let! headResponse = tryProbe HttpMethod.Head
-
-                // let! response =
-                //     if headResponse.IsSuccessStatusCode then
-                //         async.Return headResponse
-                //     else
-                //         tryProbe HttpMethod.Get
+        let probeOperation (attempt: int) =
+            async {
+                log.Information("Probe attempt {Attempt} for {Url}", attempt + 1, url)
 
                 let! response =
                     async {
@@ -81,7 +78,13 @@ module Networking =
                 use _res = response
 
                 if not response.IsSuccessStatusCode then
-                    raise (DownloadNetworkException($"Server returned {response.StatusCode}", response.StatusCode))
+                    return
+                        raise (
+                            DownloadNetworkException(
+                                $"Server returned {response.StatusCode}",
+                                response.StatusCode
+                            )
+                        )
 
                 let size =
                     response.Content.Headers.ContentLength
@@ -106,14 +109,6 @@ module Networking =
                     |> Option.bind (fun cd -> Option.ofObj cd.FileName)
                     |> Option.map (fun n -> n.Trim '\"')
 
-                // let finalUri, isRedirected =
-                //     match response.RequestMessage |> Option.ofObj with
-                //     | None -> url, false
-                //     | Some req ->
-                //         match req.RequestUri |> Option.ofObj with
-                //         | None -> url, false
-                //         | Some final -> final, final <> url
-
                 return
                     { Size = size
                       AcceptRanges = acceptRanges
@@ -121,7 +116,30 @@ module Networking =
                       LastModified = response.Content.Headers.LastModified |> Option.ofNullable
                       IsRedirected = isRedirected
                       FinalUri = finalUri }
+            }
+
+        async {
+            try
+                log.Information("Probing URL: {Url}", url)
+
+                let config : RetryPolicy.RetryConfig =
+                    { MaxRetries = 2
+                      BaseDelayMs = 500
+                      MaxDelayMs = 5000 }
+
+                return! RetryPolicy.executeAsync config probeOperation ct
             with
-            | :? DownloadNetworkException as dex -> return raise dex
-            | ex -> return raise (Exception $"Networking error during probe: {ex.Message}")
+            | :? AggregateException as ae ->
+                log.Error(ae, "All probe attempts failed for {Url}", url)
+                return raise (DownloadNetworkException($"Probe failed after retries: {ae.InnerExceptions.[0].Message}", Net.HttpStatusCode.ServiceUnavailable))
+            | :? OperationCanceledException ->
+                log.Information("Probe cancelled for {Url}", url)
+                return raise (OperationCanceledException())
+            | ex ->
+                log.Error(ex, "Probe failed for {Url}: {Message}", url, ex.Message)
+                return raise (Exception $"Networking error during probe: {ex.Message}")
         }
+
+    /// Probes the URL without cancellation token (backward compatibility wrapper)
+    let probeUrlSimple (client: HttpClient) (url: Uri) (auth: AuthInfo) =
+        probeUrl client url auth CancellationToken.None

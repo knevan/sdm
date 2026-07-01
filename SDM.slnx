@@ -7,6 +7,10 @@
         <Project Path="src/SDM.UI/SDM.UI.fsproj"/>
     </Folder>
 
+    <Folder Name="/test/">
+        <Project Path="src/SDM.Test/SDM.Test.fsproj"/>
+    </Folder>
+
     <Folder Name="/Solution Items/">
         <File Path="Directory.Build.props"/>
         <File Path="Directory.Packages.props"/>

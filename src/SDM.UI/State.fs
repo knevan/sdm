@@ -6,38 +6,10 @@ open System.IO
 open SDM.Domain
 open SDM.Application
 open SDM.Infrastructure
+open Elmish
+open Serilog
 
-/// Commands represent side effects that the update function cannot perform directly.
-/// They are executed by the runtime (e.g., the Avalonia dispatcher or a background thread)
-/// and their results are fed back as new messages.
-type Cmd =
-    | CmdNone
-    | CmdAsyncTask of (unit -> Task<Msg>)
-    | CmdBatch of Cmd list
-    | CmdSubscribe of ((Msg -> unit) -> IDisposable)
-
-module Cmd =
-    let none = CmdNone
-
-    let ofTask (t: unit -> Task<Msg>) = CmdAsyncTask t
-
-    let batch (cmds: Cmd list) = CmdBatch cmds
-
-    let ofSub (subscribe: (Msg -> unit) -> IDisposable) = CmdSubscribe subscribe
-
-    let rec map (f: Msg -> Msg) (cmd: Cmd) =
-        match cmd with
-        | CmdNone -> CmdNone
-        | CmdAsyncTask t ->
-            CmdAsyncTask(fun () ->
-                task {
-                    let! r = t ()
-                    return f r
-                })
-        | CmdBatch cs -> CmdBatch(cs |> List.map (map f))
-        | CmdSubscribe sub -> CmdSubscribe(fun dispatch -> sub (f >> dispatch))
-
-/// Pure state module following the Elmish pattern.
+/// Pure state module following the Elmish pattern with Elmish Cmd.
 /// All transitions are handled by `update` — no mutable state in the UI layer.
 module State =
 
@@ -66,21 +38,11 @@ module State =
         manager, scheduler
 
     /// Initial application state and startup command.
-    /// Loads the download list from SQLite and returns the command to subscribe to engine events.
-    let init () : Model * Cmd =
+    let init (dispatch: Msg -> unit) : Model * Elmish.Cmd<Msg> =
 
         let configStore = AppConfig.ConfigStore()
 
-        // Create a temporary dispatch for bootstrapping
-        let mutable dispatchRef: (Msg -> unit) option = None
-
-        let getDispatch () =
-            match dispatchRef with
-            | Some d -> d
-            | None -> failwith "dispatch not initialized"
-
-        // Placeholder that will be replaced after init returns
-        let manager, scheduler = createDownloadManager configStore (fun _ -> ())
+        let manager, scheduler = createDownloadManager configStore dispatch
 
         let initialModel =
             { Downloads = []
@@ -96,15 +58,11 @@ module State =
               ConfigStore = configStore }
 
         let loadCmd =
-            Cmd.ofTask (fun () ->
+            Cmd.OfTask.perform (fun () ->
                 task {
                     let entries = manager.GetAll()
-
-                    return
-                        entries
-                        |> List.map DownloadDisplayItem.FromEntry
-                        |> fun items -> LoadFromDatabase
-                })
+                    return entries |> List.map DownloadDisplayItem.FromEntry
+                }) () (fun _ -> LoadFromDatabase)
 
         initialModel, loadCmd
 
@@ -123,20 +81,14 @@ module State =
 
     /// Compute derived state from the download list
     let private recomputeStatus (model: Model) =
-        let filtered = applySearch model.SearchQuery model.Downloads
-
         { model with
             ActiveCount = model.Downloads |> List.filter (fun d -> d.IsActive) |> List.length
             StatusText =
                 let active = model.Downloads |> List.filter (fun d -> d.IsActive) |> List.length
-
-                if active > 0 then
-                    $"{active} active download(s)"
-                else
-                    "Ready" }
+                if active > 0 then $"{active} active download(s)" else "Ready" }
 
     /// Pure update function — takes a message and the current model, returns new model + commands.
-    let update (msg: Msg) (model: Model) : Model * Cmd =
+    let update (msg: Msg) (model: Model) : Model * Elmish.Cmd<Msg> =
 
         match msg with
         // ── Load from database ──
@@ -148,7 +100,6 @@ module State =
         | RefreshList ->
             let entries = model.DownloadManager.GetAll()
             let items = entries |> List.map DownloadDisplayItem.FromEntry
-
             recomputeStatus { model with Downloads = items }, Cmd.none
 
         // ── Add new download ──
@@ -159,45 +110,24 @@ module State =
 
                 let request =
                     { AddDownloadRequest.Url = uri
-                      FileName =
-                        if String.IsNullOrWhiteSpace fileName then
-                            None
-                        else
-                            Some fileName
-                      TargetFolder =
-                        if String.IsNullOrWhiteSpace targetFolder then
-                            None
-                        else
-                            Some targetFolder
+                      FileName = if String.IsNullOrWhiteSpace fileName then None else Some fileName
+                      TargetFolder = if String.IsNullOrWhiteSpace targetFolder then None else Some targetFolder
                       Headers = Map.empty
                       Cookies = None
                       Auth = NoAuth
                       Hash = None
                       StartImmediately = true }
 
-                let cmd =
-                    Cmd.ofTask (fun () ->
-                        task {
-                            let! result = model.DownloadManager.AddAsync(request)
-
-                            return
-                                match result with
-                                | Added id ->
-                                    let entry = model.DownloadManager.TryGet(id)
-
-                                    match entry with
-                                    | None -> RefreshList
-                                    | Some e -> RefreshList
-
-                                | _ -> RefreshList
-                        })
-
                 let newModel =
                     { model with
                         ActiveDialog = NoDialog
                         StatusText = "Adding download..." }
 
-                newModel, Cmd.batch [ cmd; Cmd.ofTask (fun () -> task { return CloseNewDownloadDialog }) ]
+                newModel,
+                Cmd.OfTask.perform
+                    (fun () -> model.DownloadManager.AddAsync(request))
+                    ()
+                    (fun _ -> RefreshList)
             | _ -> model, Cmd.none
 
         | AddNewDownload url ->
@@ -213,14 +143,11 @@ module State =
                   Hash = None
                   StartImmediately = true }
 
-            let cmd =
-                Cmd.ofTask (fun () ->
-                    task {
-                        let! result = model.DownloadManager.AddAsync(request)
-                        return RefreshList
-                    })
-
-            model, cmd
+            model,
+            Cmd.OfTask.perform
+                (fun () -> model.DownloadManager.AddAsync(request))
+                ()
+                (fun _ -> RefreshList)
 
         // ── Download controls ──
         | StartDownload id ->
@@ -233,12 +160,7 @@ module State =
             let downloads =
                 model.Downloads
                 |> List.map (fun d ->
-                    if d.Id = id then
-                        { d with
-                            StatusText = "Paused"
-                            IsActive = false }
-                    else
-                        d)
+                    if d.Id = id then { d with StatusText = "Paused"; IsActive = false } else d)
 
             recomputeStatus { model with Downloads = downloads }, Cmd.none
 
@@ -248,12 +170,7 @@ module State =
             let downloads =
                 model.Downloads
                 |> List.map (fun d ->
-                    if d.Id = id then
-                        { d with
-                            StatusText = "Cancelled"
-                            IsActive = false }
-                    else
-                        d)
+                    if d.Id = id then { d with StatusText = "Cancelled"; IsActive = false } else d)
 
             recomputeStatus { model with Downloads = downloads }, Cmd.none
 
@@ -271,49 +188,37 @@ module State =
 
         // ── Dialog: New Download ──
         | OpenNewDownloadDialog ->
-            { model with
-                ActiveDialog = NewDownload("", "", "", false) },
-            Cmd.none
+            { model with ActiveDialog = NewDownload("", "", "", false) }, Cmd.none
 
         | CloseNewDownloadDialog -> { model with ActiveDialog = NoDialog }, Cmd.none
 
         | UpdateNewDownloadUrl text ->
             match model.ActiveDialog with
-            | NewDownload(_url, fn, folder, _) ->
-                { model with
-                    ActiveDialog = NewDownload(text, fn, folder, false) },
-                Cmd.none
+            | NewDownload(_, fn, folder, _) ->
+                { model with ActiveDialog = NewDownload(text, fn, folder, false) }, Cmd.none
             | _ -> model, Cmd.none
 
         | UpdateNewDownloadFileName text ->
             match model.ActiveDialog with
-            | NewDownload(url, _fn, folder, _) ->
-                { model with
-                    ActiveDialog = NewDownload(url, text, folder, false) },
-                Cmd.none
+            | NewDownload(url, _, folder, _) ->
+                { model with ActiveDialog = NewDownload(url, text, folder, false) }, Cmd.none
             | _ -> model, Cmd.none
 
         // ── Dialog: Delete Confirm ──
         | OpenDeleteConfirm(id, fileName) ->
-            { model with
-                ActiveDialog = DeleteConfirm(id, fileName, false) },
-            Cmd.none
+            { model with ActiveDialog = DeleteConfirm(id, fileName, false) }, Cmd.none
 
         | CloseDeleteConfirm -> { model with ActiveDialog = NoDialog }, Cmd.none
 
         | ToggleDeleteFiles ->
             match model.ActiveDialog with
-            | DeleteConfirm(id, fileName, df) ->
-                { model with
-                    ActiveDialog = DeleteConfirm(id, fileName, not df) },
-                Cmd.none
+            | DeleteConfirm(id, fn, df) ->
+                { model with ActiveDialog = DeleteConfirm(id, fn, not df) }, Cmd.none
             | _ -> model, Cmd.none
 
         // ── Dialog: Speed Limiter ──
         | OpenSpeedLimiter ->
-            { model with
-                ActiveDialog = SpeedLimiter(model.SpeedLimitKBps > 0, model.SpeedLimitKBps) },
-            Cmd.none
+            { model with ActiveDialog = SpeedLimiter(model.SpeedLimitKBps > 0, model.SpeedLimitKBps) }, Cmd.none
 
         | CloseSpeedLimiter -> { model with ActiveDialog = NoDialog }, Cmd.none
 
@@ -330,30 +235,34 @@ module State =
         | UpdateSpeedLimit kbps ->
             match model.ActiveDialog with
             | SpeedLimiter(enabled, _) ->
-                { model with
-                    ActiveDialog = SpeedLimiter(enabled, kbps) },
-                Cmd.none
+                { model with ActiveDialog = SpeedLimiter(enabled, kbps) }, Cmd.none
             | _ -> model, Cmd.none
 
         | ApplySpeedLimit ->
-            match model.ActiveDialog with
-            | SpeedLimiter(enabled, limitKBps) ->
-                let newLimit = if enabled then limitKBps else 0
+            let finalLimit =
+                match model.ActiveDialog with
+                | SpeedLimiter(enabled, limit) -> if enabled then limit else 0
+                | _ -> model.SpeedLimitKBps
 
-                model.ConfigStore.Update(fun cfg -> { cfg with SpeedLimitKBps = newLimit })
+            model.ConfigStore.Update(fun cfg -> { cfg with SpeedLimitKBps = finalLimit })
 
-                { model with
-                    ActiveDialog = NoDialog
-                    SpeedLimitKBps = newLimit },
-                Cmd.none
-            | _ -> model, Cmd.none
+            { model with
+                ActiveDialog = NoDialog
+                SpeedLimitKBps = finalLimit },
+            Cmd.none
+
+        | ApplySpeedLimitWithValue kbps ->
+            model.ConfigStore.Update(fun cfg -> { cfg with SpeedLimitKBps = kbps })
+
+            { model with
+                ActiveDialog = NoDialog
+                SpeedLimitKBps = kbps },
+            Cmd.none
 
         // ── Dialog: Download Complete ──
         | OpenDownloadComplete(filePath, folderPath) ->
             if model.ShowCompleteDialog then
-                { model with
-                    ActiveDialog = DownloadComplete(filePath, folderPath, false) },
-                Cmd.none
+                { model with ActiveDialog = DownloadComplete(filePath, folderPath, false) }, Cmd.none
             else
                 model, Cmd.none
 
@@ -367,8 +276,7 @@ module State =
 
         // ── Selection ──
         | SelectDownload id ->
-            let downloads =
-                model.Downloads |> List.map (fun d -> { d with IsSelected = (Some d.Id = id) })
+            let downloads = model.Downloads |> List.map (fun d -> { d with IsSelected = (Some d.Id = id) })
 
             { model with
                 SelectedDownload = id
@@ -378,40 +286,42 @@ module State =
         | ToggleSelectDownload id ->
             let downloads =
                 model.Downloads
-                |> List.map (fun d ->
-                    if d.Id = id then
-                        { d with IsSelected = not d.IsSelected }
-                    else
-                        d)
+                |> List.map (fun d -> if d.Id = id then { d with IsSelected = not d.IsSelected } else d)
 
             { model with Downloads = downloads }, Cmd.none
 
         // ── Search ──
         | UpdateSearchQuery text ->
-            let query =
-                if String.IsNullOrWhiteSpace text then
-                    SearchAll
-                else
-                    SearchText text
-
+            let query = if String.IsNullOrWhiteSpace text then SearchAll else SearchText text
             recomputeStatus { model with SearchQuery = query }, Cmd.none
 
         | ClearSearch -> recomputeStatus { model with SearchQuery = SearchAll }, Cmd.none
 
-        // ── Engine events (from background threads) ──
+        // ── Engine events ──
         | EngineEvent engineEvent ->
             match engineEvent with
             | ProgressUpdated(id, info) ->
+                let speed = int64 info.Speed
+                let speedStr = Helpers.FormatHelper.formatSpeed speed
+                let etaText =
+                    if speed > 0L && speed <= 1_000_000_000L then
+                        match info.TotalBytes with
+                        | Some total when total > info.DownloadedBytes && total > 0L<B> ->
+                            let remaining = int64 total - int64 info.DownloadedBytes
+                            let etaSec = float remaining / float speed
+                            Helpers.FormatHelper.formatEta (TimeSpan.FromSeconds etaSec)
+                        | _ -> ""
+                    else ""
+
                 let downloads =
                     model.Downloads
                     |> List.map (fun d ->
                         if d.Id = id then
-                            let speedStr = Helpers.FormatHelper.formatSpeed (int64 info.Speed)
-
                             { d with
                                 Progress = info.Progress
                                 ProgressInt = info.Progress |> int |> min 100 |> max 0
-                                SpeedText = if info.Speed > 0L<Bps> then speedStr else ""
+                                SpeedText = if speed > 0L then speedStr else ""
+                                EtaText = etaText
                                 StatusText = $"Downloading — {speedStr}"
                                 IsActive = true }
                         else
@@ -423,18 +333,12 @@ module State =
                 let downloads =
                     model.Downloads
                     |> List.map (fun d ->
-                        if d.Id = id then
-                            { d with
-                                StatusText = "Starting"
-                                IsActive = true }
-                        else
-                            d)
+                        if d.Id = id then { d with StatusText = "Starting"; IsActive = true } else d)
 
                 recomputeStatus { model with Downloads = downloads }, Cmd.none
 
             | DownloadFinished(id, finalPath) ->
-                let folderPath =
-                    Path.GetDirectoryName finalPath |> Option.ofObj |> Option.defaultValue ""
+                let folderPath = Path.GetDirectoryName finalPath |> Option.ofObj |> Option.defaultValue ""
 
                 let downloads =
                     model.Downloads
@@ -453,7 +357,10 @@ module State =
 
                 let completeCmd =
                     if model.ShowCompleteDialog then
-                        Cmd.ofTask (fun () -> task { return OpenDownloadComplete(finalPath, folderPath) })
+                        Cmd.OfTask.perform
+                            (fun () -> task { return (finalPath, folderPath) })
+                            ()
+                            (fun (fp, fol) -> OpenDownloadComplete(fp, fol))
                     else
                         Cmd.none
 
@@ -487,9 +394,41 @@ module State =
 
                 recomputeStatus { model with Downloads = downloads }, Cmd.none
 
+            | DownloadAssembling id ->
+                let downloads =
+                    model.Downloads
+                    |> List.map (fun d ->
+                        if d.Id = id then
+                            { d with
+                                StatusText = "Assembling..."
+                                Progress = 99.0
+                                ProgressInt = 99
+                                IsActive = false
+                                SpeedText = "" }
+                        else
+                            d)
+
+                recomputeStatus { model with Downloads = downloads }, Cmd.none
+
         // ── Shutdown ──
         | Shutdown ->
+            let log = Log.ForContext("Source", "State")
+            log.Information("Application shutdown initiated")
+
             model.QueueScheduler.Stop()
+
+            // Fire-and-forget graceful shutdown with async manager shutdown
+            // The Elmish loop is synchronous, so we start the async shutdown in background
+            task {
+                try
+                    do! model.DownloadManager.ShutdownAsync()
+                with ex ->
+                    log.Error(ex, "Error during async shutdown")
+            }
+            |> ignore
+
             (model.QueueScheduler :> IDisposable).Dispose()
             (model.DownloadManager :> IDisposable).Dispose()
+
+            log.Information("Application shutdown complete")
             model, Cmd.none

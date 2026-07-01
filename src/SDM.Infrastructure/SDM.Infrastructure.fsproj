@@ -25,6 +25,5 @@
         <TrimmerRootAssembly Include="Configuration.fs"/>
         <TrimmerRootAssembly Include="Persistence/DownloadStore.fs"/>
     </ItemGroup>
-
-    <Import Project="..\..\.paket\Paket.Restore.targets"/>
+    
 </Project>

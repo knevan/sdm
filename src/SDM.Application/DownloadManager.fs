@@ -9,6 +9,7 @@ open System.Threading.Tasks
 open SDM.Domain
 open SDM.Engine
 open SDM.Infrastructure
+open Serilog
 
 /// Immutable request to add a new download to the manager
 type AddDownloadRequest =
@@ -44,6 +45,8 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     let sharedHandler =
         HttpClientService.createSharedHandler HttpClientService.defaultConfig
 
+    let log = Log.ForContext<DownloadManager>()
+
     // Per-download HttpClient instances (reused for probing)
     let probeHttpClient =
         let client = new HttpClient(sharedHandler, disposeHandler = false)
@@ -68,7 +71,8 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     let raiseEvent (evt: DownloadEvent) =
         try
             eventHandler.Invoke evt
-        with _ ->
+        with ex ->
+            log.Warning(ex, "Error dispatching event {EventType}", evt.GetType().Name)
             ()
 
     /// Derive file name from URL
@@ -81,7 +85,8 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
         else
             Path.GetFileName decoded |> Option.ofObj |> Option.defaultValue decoded
 
-    /// Resolve file name conflicts
+    /// Resolve file name conflicts according to the configured mode.
+    /// Ask mode returns the input path unchanged — conflict resolution is handled at the UI layer.
     let resolveConflict (path: string) (mode: FileConflictMode) =
         match mode with
         | Overwrite -> path
@@ -91,21 +96,12 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
                 path
             else
                 let dir = Path.GetDirectoryName path |> Option.ofObj |> Option.defaultValue ""
-
-                let name =
-                    Path.GetFileNameWithoutExtension path
-                    |> Option.ofObj
-                    |> Option.defaultValue "download"
-
+                let name = Path.GetFileNameWithoutExtension path |> Option.ofObj |> Option.defaultValue "download"
                 let ext = Path.GetExtension path |> Option.ofObj |> Option.defaultValue ""
 
-                let rec findAvailable n =
+                let rec findAvailable (n: int) =
                     let candidate = Path.Combine(dir, $"{name} ({n}){ext}")
-
-                    if File.Exists candidate then
-                        findAvailable (n + 1)
-                    else
-                        candidate
+                    if File.Exists candidate then findAvailable (n + 1) else candidate
 
                 findAvailable 1
 
@@ -143,7 +139,7 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     /// Probe the URL and update the entry with server metadata
     let probeAndInput (entry: DownloadEntry) =
         async {
-            let! probe = Networking.probeUrl probeHttpClient entry.Url entry.Auth
+            let! probe = Networking.probeUrlSimple probeHttpClient entry.Url entry.Auth
 
             let inputFileName = probe.FileName |> Option.defaultValue entry.FileName
             let inputUrl = if probe.IsRedirected then probe.FinalUri else entry.Url
@@ -171,6 +167,8 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     let createCoordinatorEventHandler (entryRef: DownloadEntry ref) (event: DownloadEvent) =
         match event with
         | DownloadStarted _ ->
+            log.Information("Download started: {FileName}", entryRef.Value.FileName)
+
             let updated =
                 { entryRef.Value with
                     Status = Downloading(0L<Bps>, TimeSpan.Zero) }
@@ -186,7 +184,16 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             DownloadStore.upsert connectionString updated
             entryRef.Value <- updated
 
+        | DownloadAssembling id ->
+            log.Information("Download assembling: {FileName}", entryRef.Value.FileName)
+
+            let updated = { entryRef.Value with Status = Assembling }
+            DownloadStore.upsert connectionString updated
+            entryRef.Value <- updated
+
         | DownloadFinished(id, finalPath) ->
+            log.Information("Download finished: {FileName} -> {Path}", entryRef.Value.FileName, finalPath)
+
             let updated =
                 { entryRef.Value with
                     Status = Completed DateTime.UtcNow }
@@ -196,6 +203,8 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             activeDownloads.TryRemove id |> ignore
 
         | DownloadFailed(id, error) ->
+            log.Warning("Download failed: {FileName} — {Error}", entryRef.Value.FileName, error)
+
             let updated =
                 { entryRef.Value with
                     Status = Error("DOWNLOAD_FAILED", error) }
@@ -205,6 +214,8 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             activeDownloads.TryRemove id |> ignore
 
         | DownloadPaused id ->
+            log.Information("Download paused: {FileName}", entryRef.Value.FileName)
+
             let updated = { entryRef.Value with Status = Paused }
             DownloadStore.upsert connectionString updated
             entryRef.Value <- updated
@@ -227,7 +238,8 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
                 httpService,
                 storageService,
                 createCoordinatorEventHandler entryRef,
-                onCoordinatorStateChange
+                onCoordinatorStateChange,
+                configStore.Current.SpeedLimitKBps
             )
 
         if activeDownloads.TryAdd(entry.Id, coordinator) then
@@ -243,11 +255,22 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             try
                 let entry = buildEntry request
 
+                log.Information(
+                    "Adding download: {FileName} from {Url}",
+                    entry.FileName,
+                    entry.Url
+                )
+
                 let! input =
                     async {
                         try
                             return! probeAndInput entry
-                        with _ ->
+                        with ex ->
+                            log.Warning(
+                                ex,
+                                "Probe failed for {Url}, proceeding with defaults",
+                                entry.Url
+                            )
                             return entry
                     }
 
@@ -259,6 +282,7 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
                 return Added input.Id
 
             with ex ->
+                log.Error(ex, "Failed to add download from {Url}", request.Url)
                 return InvalidUrl ex.Message
         }
 
@@ -266,29 +290,38 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     member _.Start(id: Guid) =
         match activeDownloads.TryGetValue id with
         | true, coordinator ->
+            log.Information("Resuming download: {Id}", id)
             coordinator.Resume()
             true
         | false, _ ->
             match DownloadStore.tryGet connectionString id with
-            | Some entry -> startCoordinator entry
-            | None -> false
+            | Some entry ->
+                log.Information("Starting download from DB: {FileName}", entry.FileName)
+                startCoordinator entry
+            | None ->
+                log.Warning("Download not found for start: {Id}", id)
+                false
 
     /// Pause an active download
     member _.Pause(id: Guid) =
         match activeDownloads.TryGetValue id with
         | true, coordinator ->
+            log.Information("Pausing download: {Id}", id)
             coordinator.Pause()
 
             DownloadStore.tryGet connectionString id
             |> Option.iter (fun entry -> DownloadStore.upsert connectionString { entry with Status = Paused })
 
             true
-        | false, _ -> false
+        | false, _ ->
+            log.Warning("Cannot pause — download not active: {Id}", id)
+            false
 
     /// Cancel and remove an active download from the active list
     member _.Cancel(id: Guid) =
         match activeDownloads.TryRemove id with
         | true, coordinator ->
+            log.Information("Cancelling download: {Id}", id)
             coordinator.Cancel()
             (coordinator :> IDisposable).Dispose()
 
@@ -300,10 +333,13 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
                         Status = Error("CANCELLED", "Cancelled by user") })
 
             true
-        | false, _ -> false
+        | false, _ ->
+            log.Warning("Cannot cancel — download not found: {Id}", id)
+            false
 
     /// Remove a download completely (from DB + optional file cleanup)
     member this.Remove(id: Guid, deleteFiles: bool) =
+        log.Information("Removing download: {Id} (deleteFiles={DeleteFiles})", id, deleteFiles)
         this.Cancel id |> ignore
 
         if deleteFiles then
@@ -312,14 +348,14 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
                 try
                     if Directory.Exists entry.TempFolderPath then
                         Directory.Delete(entry.TempFolderPath, recursive = true)
-                with _ ->
-                    ()
+                with ex ->
+                    log.Warning(ex, "Failed to delete temp folder for {Id}", id)
 
                 try
                     if File.Exists entry.TargetPath then
                         File.Delete entry.TargetPath
-                with _ ->
-                    ())
+                with ex ->
+                    log.Warning(ex, "Failed to delete target file for {Id}", id))
 
         DownloadStore.delete connectionString id
 
@@ -336,16 +372,59 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
     /// Get the count of active downloads
     member _.ActiveCount = activeDownloads.Count
 
-    /// Stop all active downloads gracefully
+    /// Graceful shutdown: pause all active downloads, save state, wait for workers, then dispose.
+    member _.ShutdownAsync() : Task =
+        task {
+            let count = activeDownloads.Count
+            log.Information("Shutting down {Count} active download(s) gracefully...", count)
+
+            if count > 0 then
+                // Step 1: Pause all coordinators — this triggers onStateChange -> DB upsert
+                for kvp in activeDownloads do
+                    try
+                        kvp.Value.Pause()
+                    with ex ->
+                        log.Warning(ex, "Error pausing download {Id} during shutdown", kvp.Key)
+
+                // Step 2: Wait for in-flight writes to flush (2s grace period)
+                log.Information("Waiting 2s for workers to flush pending writes...")
+                do! Task.Delay 2000
+
+                // Step 3: Dispose all coordinators
+                for kvp in activeDownloads do
+                    try
+                        (kvp.Value :> IDisposable).Dispose()
+                    with ex ->
+                        log.Warning(ex, "Error disposing coordinator {Id} during shutdown", kvp.Key)
+
+                activeDownloads.Clear()
+
+            log.Information("Shutdown complete — {Count} downloads handled", count)
+        }
+
+    /// Stop all active downloads immediately (synchronous, for use in Dispose).
     member _.StopAll() =
         for kvp in activeDownloads do
-            kvp.Value.Pause()
-            (kvp.Value :> IDisposable).Dispose()
+            try
+                kvp.Value.Pause()
+            with _ ->
+                ()
+
+        // Brief blocking sleep to allow DB flush
+        Thread.Sleep 500
+
+        for kvp in activeDownloads do
+            try
+                (kvp.Value :> IDisposable).Dispose()
+            with _ ->
+                ()
 
         activeDownloads.Clear()
 
     interface IDisposable with
         member this.Dispose() =
+            log.Information("DownloadManager disposing...")
             this.StopAll()
             probeHttpClient.Dispose()
             sharedHandler.Dispose()
+            log.Information("DownloadManager disposed")

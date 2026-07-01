@@ -15,6 +15,7 @@
   
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="Serilog" />
     <ProjectReference Include="..\SDM.Domain\SDM.Domain.fsproj" />
     <ProjectReference Include="..\SDM.Engine\SDM.Engine.fsproj" />
     <ProjectReference Include="..\SDM.Infrastructure\SDM.Infrastructure.fsproj" />

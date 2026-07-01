@@ -13,6 +13,7 @@ type DownloadDisplayItem =
       Url: string
       SizeText: string
       SpeedText: string
+      EtaText: string
       DateText: string
       Progress: float
       ProgressInt: int
@@ -52,6 +53,7 @@ type DownloadDisplayItem =
             match entry.Status with
             | Downloading(s, _) when s > 0L<Bps> -> Helpers.FormatHelper.formatSpeed (int64 s)
             | _ -> ""
+          EtaText = ""
           DateText = entry.AddedAt.ToString("MMM dd")
           Progress = progress
           ProgressInt = progress |> int |> min 100 |> max 0
@@ -113,6 +115,7 @@ type Msg =
     | ToggleSpeedLimit
     | UpdateSpeedLimit of kbPerSec: int
     | ApplySpeedLimit
+    | ApplySpeedLimitWithValue of kbPerSec: int
     | OpenDownloadComplete of filePath: string * folderPath: string
     | CloseDownloadComplete
     | DontShowCompleteDialog

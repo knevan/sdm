@@ -78,6 +78,15 @@ type DownloadEntry =
       Auth: AuthInfo
       Hash: (HashAlgorithm * string) option }
 
+/// Events emitted by the Engine to notify the UI or other systems
+type DownloadEvent =
+    | DownloadStarted of id: Guid
+    | ProgressUpdated of id: Guid * info: ProgressInfo
+    | DownloadAssembling of id: Guid
+    | DownloadFinished of id: Guid * finalPath: string
+    | DownloadFailed of id: Guid * error: string
+    | DownloadPaused of id: Guid
+
 /// Commands for the Download Coordinator Actor
 type DownloadCommand =
     | Start
@@ -88,11 +97,7 @@ type DownloadCommand =
     | UpdateProgress of totalDownloaded: int64<B> * speed: int64<Bps>
     | SegmentCompleted of segmentId: Guid * downloaded: int64<B>
     | SegmentFailed of segmentId: Guid * error: string
-
-/// Events emitted by the Engine to notify the UI or other systems
-type DownloadEvent =
-    | DownloadStarted of id: Guid
-    | ProgressUpdated of id: Guid * info: ProgressInfo
-    | DownloadFinished of id: Guid * finalPath: string
-    | DownloadFailed of id: Guid * error: string
-    | DownloadPaused of id: Guid
+    | SplitSegment of segmentId: Guid * newSegment: Segment
+    /// Fired internally when assembly should begin
+    | BeginAssembly
+    | SetStatus of DownloadStatus * DownloadEvent option
