@@ -19,16 +19,14 @@ module Program =
     let main (args: string[]) =
         // Single-instance guard using named mutex
         let mutable createdNew = false
-        let mutable mutex: Mutex = null
+        let mutable mutex: Mutex option = None
 
         try
-            mutex <- new Mutex(true, MutexName, &createdNew)
+            mutex <- Some(new Mutex(true, MutexName, &createdNew))
         with ex ->
             Log.Warning(ex, "Failed to create singleton mutex, allowing instance")
 
-        if createdNew && mutex <> null then
-            // ── First instance — run the app ──
-
+        if createdNew && mutex.IsSome then
             // Configure structured logging before anything else
             let logDir =
                 Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.ApplicationData, "SDM", "logs")
@@ -66,9 +64,11 @@ module Program =
 
                 // Release the mutex so other instances can detect we've exited
                 try
-                    if mutex <> null then
-                        mutex.ReleaseMutex()
-                        mutex.Dispose()
+                    match mutex with
+                    | Some m ->
+                        m.ReleaseMutex()
+                        m.Dispose()
+                    | None -> ()
                 with _ ->
                     ()
         else

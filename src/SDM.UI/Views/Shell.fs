@@ -10,8 +10,9 @@ open Avalonia.Media
 open Avalonia.FuncUI.DSL
 open SDM.UI
 open SDM.UI.Theme
+open Avalonia.VisualTree
+open Avalonia.Platform.Storage
 
-/// XDM 1:1 parity shell — replicates the old XDM WPF/GTK layout exactly.
 /// Structure: Sidebar (190px) | Main Panel (toolbar + list + status bar)
 module Shell =
     // Check if running on Windows
@@ -20,7 +21,6 @@ module Shell =
             System.Runtime.InteropServices.OSPlatform.Windows
         )
 
-    // ── Resolved brushes from XDM color palette ──
     let private catBg = Colors.categoryListBgBrush :> IBrush
     let private catHl = Colors.categoryHighlightBrush :> IBrush
     let private catFg = Colors.categoryNormalBrush :> IBrush
@@ -42,7 +42,6 @@ module Shell =
     let private txtInpBg = Colors.textInputBgBrush :> IBrush
     let private searchB = Colors.searchBgBrush :> IBrush
     let private disabledB = SolidColorBrush(Color.Parse "#404040") :> IBrush
-    // AB-inspired additions
     let private toolbarBg = Colors.toolbarBgBrush :> IBrush
     let private rowEvenBg = Colors.rowEvenBgBrush :> IBrush
     let private rowOddBg = Colors.rowOddBgBrush :> IBrush
@@ -50,13 +49,30 @@ module Shell =
     let private accentBg = Colors.accentPrimaryBrush :> IBrush
     let private colDiv = Colors.colDividerBrush :> IBrush
 
-    // ── Label helper ──
+    // ── helper ──
     let private lbl (text: string) (size: float) (weight: FontWeight) (fg: IBrush) =
         TextBlock.create
             [ TextBlock.text text
               TextBlock.fontSize size
               TextBlock.fontWeight weight
               TextBlock.foreground fg ]
+
+    let private getCbChecked (e: Avalonia.Interactivity.RoutedEventArgs) : bool =
+        let rec findToggle (v: Avalonia.Visual | null) =
+            match Option.ofObj v with
+            | None -> None
+            | Some visual ->
+                match visual with
+                | :? ToggleButton as tb -> Some tb
+                | other -> findToggle (other.GetVisualParent())
+
+        match e.Source with
+        | :? ToggleButton as tb -> tb.IsChecked.HasValue && tb.IsChecked.Value
+        | :? Avalonia.Visual as v ->
+            match findToggle v with
+            | Some tb -> tb.IsChecked.HasValue && tb.IsChecked.Value
+            | None -> false
+        | _ -> false
 
     // Platform-specific dialog header layout
     let private modalHeader (title: string) (onClose: unit -> unit) =
@@ -368,19 +384,19 @@ module Shell =
 
     let private createHeaderColumns () =
         let cols =
-            [ ColumnDefinition(Width = GridLength.Auto) // Col 0  Checkbox
-              ColumnDefinition(Width = GridLength(18.0)) // Col 1  Grip
-              ColumnDefinition(Width = GridLength(1.0)) // Col 2  Splitter
-              ColumnDefinition(Width = colWidths.[0], MinWidth = 140.0) // Col 3  Name
-              ColumnDefinition(Width = GridLength(5.0)) // Col 4  Splitter
-              ColumnDefinition(Width = colWidths.[1], MinWidth = 54.0) // Col 5  Size
-              ColumnDefinition(Width = GridLength(5.0)) // Col 6  Splitter
-              ColumnDefinition(Width = colWidths.[2], MinWidth = 70.0) // Col 7  Status
-              ColumnDefinition(Width = GridLength(5.0)) // Col 8  Splitter
-              ColumnDefinition(Width = colWidths.[3], MinWidth = 60.0) // Col 9  Speed
-              ColumnDefinition(Width = GridLength(5.0)) // Col 10 Splitter
-              ColumnDefinition(Width = colWidths.[4], MinWidth = 54.0) // Col 11 Time Left
-              ColumnDefinition(Width = GridLength(5.0)) // Col 12 Splitter
+            [ ColumnDefinition(Width = GridLength.Auto, SharedSizeGroup = "ColCheckbox") // Col 0  Checkbox
+              ColumnDefinition(Width = GridLength(18.0), SharedSizeGroup = "ColGrip")
+              ColumnDefinition(Width = GridLength(1.0), SharedSizeGroup = "ColSplitter0")
+              ColumnDefinition(Width = colWidths.[0], MinWidth = 140.0, SharedSizeGroup = "ColName")
+              ColumnDefinition(Width = GridLength(5.0), SharedSizeGroup = "ColSplitter1")
+              ColumnDefinition(Width = colWidths.[1], MinWidth = 54.0, SharedSizeGroup = "ColSize")
+              ColumnDefinition(Width = GridLength(5.0), SharedSizeGroup = "ColSplitter2")
+              ColumnDefinition(Width = colWidths.[2], MinWidth = 70.0, SharedSizeGroup = "ColStatus")
+              ColumnDefinition(Width = GridLength(5.0), SharedSizeGroup = "ColSplitter3")
+              ColumnDefinition(Width = colWidths.[3], MinWidth = 60.0, SharedSizeGroup = "ColSpeed")
+              ColumnDefinition(Width = GridLength(5.0), SharedSizeGroup = "ColSplitter4")
+              ColumnDefinition(Width = colWidths.[4], MinWidth = 54.0, SharedSizeGroup = "ColTimeLeft") // Col 11 Time Left
+              ColumnDefinition(Width = GridLength(5.0), SharedSizeGroup = "ColSplitter5")
               ColumnDefinition(Width = colWidths.[5], MinWidth = 80.0) ] // Col 13 Date
 
         // Subscribe to width changes so the sizes persist across Virtual-DOM re-renders
@@ -415,21 +431,36 @@ module Shell =
 
         let iconBg = Icon.forCategory item.FileCategory
 
-        // Bind each row column's Width to the corresponding header column definition
-        // so that resizing the header also resizes all rows — no layout duplication.
         let createRowGridColumns () =
             let colDefs = ColumnDefinitions()
 
-            for i in 0 .. headerCols.Length - 1 do
-                let rCol = ColumnDefinition()
-                let b = Avalonia.Data.Binding("Width")
-                b.Source <- headerCols[i]
-                rCol.Bind(ColumnDefinition.WidthProperty, b) |> ignore
-                colDefs.Add(rCol)
+            let addBoundCol (headerCol: ColumnDefinition) (minWidth: float) =
+                let col = ColumnDefinition(MinWidth = minWidth)
+
+                col.Bind(ColumnDefinition.WidthProperty, headerCol.GetObservable(ColumnDefinition.WidthProperty))
+                |> ignore
+
+                colDefs.Add(col)
+
+            // Bind each row column directly to the corresponding header column by index
+            addBoundCol headerCols.[0] 0.0 // Col 0: Checkbox
+            addBoundCol headerCols.[1] 0.0 // Col 1: Grip
+            addBoundCol headerCols.[2] 0.0 // Col 2: Splitter 0
+            addBoundCol headerCols.[3] 25.0 // Col 3: Name
+            addBoundCol headerCols.[4] 0.0 // Col 4: Splitter 1
+            addBoundCol headerCols.[5] 25.0 // Col 5: Size
+            addBoundCol headerCols.[6] 0.0 // Col 6: Splitter 2
+            addBoundCol headerCols.[7] 25.0 // Col 7: Status
+            addBoundCol headerCols.[8] 0.0 // Col 8: Splitter 3
+            addBoundCol headerCols.[9] 25.0 // Col 9: Speed
+            addBoundCol headerCols.[10] 0.0 // Col 10: Splitter 4
+            addBoundCol headerCols.[11] 25.0 // Col 11: Time Left
+            addBoundCol headerCols.[12] 0.0 // Col 12: Splitter 5
+            addBoundCol headerCols.[13] 40.0 // Col 13: Date (Responsive Star Column)
 
             colDefs
 
-        // Helper: right-aligned numeric text cell
+        // Helper: right-aligned numeric text cell with text trimming support
         let numCell (col: int) (text: string) (fg: IBrush) =
             TextBlock.create
                 [ Grid.column col
@@ -438,13 +469,32 @@ module Shell =
                   TextBlock.foreground fg
                   TextBlock.verticalAlignment VerticalAlignment.Center
                   TextBlock.horizontalAlignment HorizontalAlignment.Center
-                  TextBlock.textAlignment TextAlignment.Center ]
+                  TextBlock.textAlignment TextAlignment.Center
+                  TextBlock.textTrimming TextTrimming.CharacterEllipsis ]
             :> Avalonia.FuncUI.Types.IView
 
         Border.create
             [ Border.padding Spacing.row
               Border.background rowBg
-              Border.onTapped (fun _ -> dispatch (SelectDownload(Some item.Id)))
+              Border.onTapped (fun e ->
+                  let isCheckboxSource =
+                      match e.Source with
+                      | :? CheckBox -> true
+                      | :? Avalonia.Visual as v ->
+                          // Traverse visual tree upwards to check if it's inside a CheckBox template
+                          let rec isDescendantOfCb (curr: Avalonia.Visual | null) =
+                              match Option.ofObj curr with
+                              | None -> false
+                              | Some visual ->
+                                  match visual with
+                                  | :? CheckBox -> true
+                                  | other -> isDescendantOfCb (other.GetVisualParent())
+
+                          isDescendantOfCb v
+                      | _ -> false
+
+                  if not isCheckboxSource then
+                      dispatch (SelectDownload(Some item.Id)))
               Border.child (
                   Grid.create
                       [ Grid.columnDefinitions (createRowGridColumns ())
@@ -454,7 +504,12 @@ module Shell =
                                   [ Grid.column 0
                                     CheckBox.margin (Thickness(8.0, 0.0, 4.0, 0.0))
                                     CheckBox.isChecked item.IsSelected
-                                    CheckBox.onIsCheckedChanged (fun _ -> dispatch (ToggleSelectDownload item.Id)) ]
+                                    CheckBox.onTapped (fun e -> e.Handled <- true)
+                                    CheckBox.onClick (fun e ->
+                                        e.Handled <- true
+                                        let newVal = getCbChecked e
+                                        dispatch (SetSelectDownload(item.Id, newVal))) ]
+                              |> View.withKey (string item.Id)
 
                               // Col 1: Drag-handle grip (⋮⋮)
                               TextBlock.create
@@ -467,32 +522,78 @@ module Shell =
                                     TextBlock.cursor (new Cursor(StandardCursorType.SizeAll))
                                     TextBlock.onPointerPressed (fun e ->
                                         if item.IsCompleted && System.IO.File.Exists item.TargetPath then
-                                            let dataObj = DataObject()
-                                            let files = System.Collections.Generic.List<string>()
-                                            files.Add(item.TargetPath)
-                                            dataObj.Set(DataFormats.Files, files)
-                                            DragDrop.DoDragDrop(e, dataObj, DragDropEffects.Copy) |> ignore) ]
+                                            match e.Source with
+                                            | :? Visual as v ->
+                                                match Option.ofObj (TopLevel.GetTopLevel(v)) with
+                                                | Some topLevel ->
+                                                    async {
+                                                        // Get the file from local path asynchronously using StorageProvider
+                                                        let! fileResult =
+                                                            topLevel.StorageProvider.TryGetFileFromPathAsync(
+                                                                item.TargetPath
+                                                            )
+                                                            |> Async.AwaitTask
+
+                                                        match Option.ofObj fileResult with
+                                                        | Some file ->
+                                                            // Package the file item with the new DataTransfer API
+                                                            let dtItem =
+                                                                DataTransferItem.Create(
+                                                                    DataFormat.File,
+                                                                    file :> IStorageItem
+                                                                )
+
+                                                            let dataObj = new DataTransfer()
+                                                            dataObj.Add(dtItem)
+
+                                                            // Run the drag & drop operation asynchronously
+                                                            let! _ =
+                                                                DragDrop.DoDragDropAsync(
+                                                                    e,
+                                                                    dataObj,
+                                                                    DragDropEffects.Copy
+                                                                )
+                                                                |> Async.AwaitTask
+
+                                                            ()
+                                                        | None -> ()
+                                                    }
+                                                    |> Async.StartImmediate
+                                                | None -> ()
+                                            | _ -> ()) ]
 
                               // Col 3: Name (icon square + filename + ETA sub-line)
-                              StackPanel.create
+                              DockPanel.create
                                   [ Grid.column 3
-                                    StackPanel.orientation Orientation.Horizontal
-                                    StackPanel.spacing 7.0
-                                    StackPanel.verticalAlignment VerticalAlignment.Center
-                                    StackPanel.margin (Thickness(4.0, 0.0, 0.0, 0.0))
-                                    StackPanel.children
+                                    DockPanel.lastChildFill true
+                                    DockPanel.verticalAlignment VerticalAlignment.Center
+                                    DockPanel.margin (Thickness(4.0, 0.0, 0.0, 0.0))
+                                    DockPanel.children
                                         [ // File-type colour square
                                           Border.create
                                               [ Border.width 16.0
                                                 Border.height 16.0
                                                 Border.cornerRadius (CornerRadius 3.0)
-                                                Border.background iconBg ]
+                                                Border.background iconBg
+                                                Border.margin (Thickness(0.0, 0.0, 7.0, 0.0)) ]
+
                                           StackPanel.create
                                               [ StackPanel.verticalAlignment VerticalAlignment.Center
                                                 StackPanel.children
-                                                    [ lbl item.FileName 12.0 FontWeight.SemiBold listText
+                                                    [ TextBlock.create
+                                                          [ TextBlock.text item.FileName
+                                                            TextBlock.fontSize 12.0
+                                                            TextBlock.fontWeight FontWeight.SemiBold
+                                                            TextBlock.foreground listText
+                                                            TextBlock.textTrimming TextTrimming.CharacterEllipsis ]
+
                                                       if item.IsActive && not (String.IsNullOrEmpty item.EtaText) then
-                                                          lbl ("ETA: " + item.EtaText) 10.0 FontWeight.Normal textFg ] ] ] ]
+                                                          TextBlock.create
+                                                              [ TextBlock.text ("ETA: " + item.EtaText)
+                                                                TextBlock.fontSize 10.0
+                                                                TextBlock.fontWeight FontWeight.Normal
+                                                                TextBlock.foreground textFg
+                                                                TextBlock.textTrimming TextTrimming.CharacterEllipsis ] ] ] ] ]
 
                               numCell 5 item.SizeText listText
 
@@ -580,7 +681,11 @@ module Shell =
                 [ Grid.column 0
                   CheckBox.margin (Thickness(8.0, 0.0, 4.0, 0.0))
                   CheckBox.isChecked filteredAllSelected
-                  CheckBox.onIsCheckedChanged (fun _ -> dispatch ToggleSelectAll) ]
+                  CheckBox.onTapped (fun e -> e.Handled <- true)
+                  CheckBox.onClick (fun e ->
+                      e.Handled <- true
+                      let newVal = getCbChecked e
+                      dispatch (SetSelectAll newVal)) ]
 
         // Thin visual column divider (not resizable — purely decorative)
         let divider (colIdx: int) =
@@ -655,6 +760,7 @@ module Shell =
 
         DockPanel.create
             [ DockPanel.lastChildFill true
+              Grid.isSharedSizeScope true
               DockPanel.children
                   [ colHeaders
                     if List.isEmpty filtered then
@@ -771,18 +877,22 @@ module Shell =
                   [ for text, bg, action in orderedButtons do
                         btn text bg catHlFg action ] ]
 
-    let private chk (lb: string) (isChecked: bool) (onToggle: unit -> unit) =
+    let private chk (lb: string) (isChecked: bool) (onChanged: bool -> unit) =
         CheckBox.create
             [ CheckBox.content lb
               CheckBox.isChecked isChecked
               CheckBox.foreground listText
-              CheckBox.onIsCheckedChanged (fun _ -> onToggle ()) ]
+              CheckBox.onTapped (fun e -> e.Handled <- true)
+              CheckBox.onClick (fun e ->
+                  e.Handled <- true
+                  let newVal = getCbChecked e
+                  onChanged newVal) ]
 
     let private deleteConfirmModal (id: Guid) (fileName: string) (deleteFiles: bool) (dispatch: Msg -> unit) =
         modal
             [ modalHeader ("Delete \"" + fileName + "\"?") (fun () -> dispatch CloseDeleteConfirm)
               lbl "This cannot be undone." 11.0 FontWeight.Normal textFg
-              chk "Also delete files from disk" deleteFiles (fun () -> dispatch ToggleDeleteFiles)
+              chk "Also delete files from disk" deleteFiles (fun newVal -> dispatch (SetDeleteFiles newVal))
               rowBtns
                   dispatch
                   [ ("Cancel", btnBg, fun () -> dispatch CloseDeleteConfirm)
@@ -797,7 +907,7 @@ module Shell =
         modal
             [ modalHeader ("Delete " + displayNames + "?") (fun () -> dispatch CloseDeleteConfirm)
               lbl "This cannot be undone." 11.0 FontWeight.Normal textFg
-              chk "Also delete files from disk" deleteFiles (fun () -> dispatch ToggleDeleteFiles)
+              chk "Also delete files from disk" deleteFiles (fun newVal -> dispatch (SetDeleteFiles newVal))
               rowBtns
                   dispatch
                   [ ("Cancel", btnBg, fun () -> dispatch CloseDeleteConfirm)
@@ -806,7 +916,7 @@ module Shell =
     let private speedLimiterModal (enabled: bool) (limit: int) (dispatch: Msg -> unit) =
         modal
             [ modalHeader "Speed Limiter" (fun () -> dispatch CloseSpeedLimiter)
-              chk "Enable Speed Limit" enabled (fun () -> dispatch ToggleSpeedLimit)
+              chk "Enable Speed Limit" enabled (fun _ -> dispatch ToggleSpeedLimit)
               Slider.create
                   [ Slider.minimum 0.0
                     Slider.maximum 10000.0
@@ -834,7 +944,7 @@ module Shell =
                               Helpers.PlatformLauncher.openFolder folderPath None |> ignore
                               dispatch CloseDownloadComplete)
                           btn "Close" btnBg listText (fun () -> dispatch CloseDownloadComplete) ] ]
-              chk "Don't show this again" false (fun () -> dispatch DontShowCompleteDialog) ]
+              chk "Don't show this again" false (fun _ -> dispatch DontShowCompleteDialog) ]
 
     let private newDownloadControls (url: string) (fn: string) (dispatch: Msg -> unit) =
         [ modalHeader "New Download" (fun () -> dispatch CloseNewDownloadDialog)

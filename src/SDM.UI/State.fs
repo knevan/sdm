@@ -379,15 +379,15 @@ module State =
 
         | CloseDeleteConfirm -> { model with ActiveDialog = NoDialog }, Cmd.none
 
-        | ToggleDeleteFiles ->
+        | SetDeleteFiles df ->
             match model.ActiveDialog with
-            | DeleteConfirm(id, fn, df) ->
+            | DeleteConfirm(id, fn, _) ->
                 { model with
-                    ActiveDialog = DeleteConfirm(id, fn, not df) },
+                    ActiveDialog = DeleteConfirm(id, fn, df) },
                 Cmd.none
-            | DeleteConfirmMultiple(ids, displayNames, df) ->
+            | DeleteConfirmMultiple(ids, displayNames, _) ->
                 { model with
-                    ActiveDialog = DeleteConfirmMultiple(ids, displayNames, not df) },
+                    ActiveDialog = DeleteConfirmMultiple(ids, displayNames, df) },
                 Cmd.none
             | _ -> model, Cmd.none
 
@@ -465,32 +465,25 @@ module State =
                 Downloads = downloads },
             Cmd.none
 
-        | ToggleSelectDownload id ->
+        | SetSelectDownload(id, isSelected) ->
             let downloads =
                 model.Downloads
                 |> List.map (fun d ->
                     if d.Id = id then
-                        { d with IsSelected = not d.IsSelected }
+                        { d with IsSelected = isSelected }
                     else
                         d)
 
             { model with Downloads = downloads }, Cmd.none
 
-        | ToggleSelectAll ->
+        | SetSelectAll isSelected ->
             let filtered = applyFilters model model.Downloads
-
-            let allSelected =
-                not (List.isEmpty filtered) && filtered |> List.forall (fun d -> d.IsSelected)
 
             let downloads =
                 model.Downloads
                 |> List.map (fun d ->
                     let isFiltered = filtered |> List.exists (fun f -> f.Id = d.Id)
-
-                    if isFiltered then
-                        { d with IsSelected = not allSelected }
-                    else
-                        d)
+                    if isFiltered then { d with IsSelected = isSelected } else d)
 
             { model with Downloads = downloads }, Cmd.none
 

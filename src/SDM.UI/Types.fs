@@ -134,7 +134,7 @@ type Msg =
     | OpenDeleteConfirm of id: Guid * fileName: string
     | OpenDeleteConfirmMultiple of ids: Guid list * displayNames: string
     | CloseDeleteConfirm
-    | ToggleDeleteFiles
+    | SetDeleteFiles of deleteFiles: bool
     | OpenSpeedLimiter
     | CloseSpeedLimiter
     | ToggleSpeedLimit
@@ -146,8 +146,8 @@ type Msg =
     | DontShowCompleteDialog
     // ── Selection & Sorting & Folding ──
     | SelectDownload of id: Guid option
-    | ToggleSelectDownload of id: Guid
-    | ToggleSelectAll
+    | SetSelectDownload of id: Guid * isSelected: bool
+    | SetSelectAll of isSelected: bool
     | SelectCategory of category: string
     | ToggleCategoryFolder of parent: string
     | ToggleSort of column: string
