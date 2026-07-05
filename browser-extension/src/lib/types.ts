@@ -14,6 +14,17 @@ export interface DownloadRequest {
   readonly mimeType?: string;
   readonly tabUrl?: string;
   readonly tabId?: string;
+  readonly silentDownload?: boolean;
+}
+
+/**
+ * Downloadable media structure synced from desktop app.
+ */
+export interface DownloadableMedia {
+  readonly id: string;
+  readonly text: string;
+  readonly info?: string;
+  readonly tabId?: string;
 }
 
 /**
@@ -25,15 +36,18 @@ export interface AppSyncConfig {
   readonly fileExts: readonly string[];
   readonly blockedHosts: readonly string[];
   readonly requestFileExts: readonly string[];
+  readonly videoList?: readonly DownloadableMedia[];
 }
 
-/**
- * The runtime state of the browser extension, managed by the background script.
- */
 export interface ExtensionState {
   appConnected: boolean;
   appEnabled: boolean;
   userEnabled: boolean;
+  activePort: number;
+  bypassKey: string;
+  isBypassActive?: boolean;
+  showPopups: boolean;
+  silentDownload: boolean;
 }
 
 /**
@@ -61,10 +75,33 @@ export type PopupMessage =
   | {
       readonly type: "set-enabled";
       readonly enabled: boolean;
+    }
+  | {
+      readonly type: "set-bypass-key";
+      readonly key: string;
+    }
+  | {
+      readonly type: "set-show-popups";
+      readonly enabled: boolean;
+    }
+  | {
+      readonly type: "set-silent-download";
+      readonly enabled: boolean;
     };
 
 export interface PopupStatusResponse {
   readonly connected: boolean;
   readonly appEnabled: boolean;
   readonly userEnabled: boolean;
+  readonly activePort: number;
+  readonly bypassKey: string;
+  readonly showPopups: boolean;
+  readonly silentDownload: boolean;
 }
+
+export type ContentMessage =
+  | { readonly type: "media-list-updated"; readonly media: readonly DownloadableMedia[] }
+  | { readonly type: "get-config" }
+  | { readonly type: "download-links"; readonly links: readonly string[] }
+  | { readonly type: "media-click"; readonly mediaId: string };
+

@@ -39,7 +39,9 @@ type FaultyNetworkStream(totalSize: int64, breakAtByte: int64 option, slowDelayM
         | _ -> ()
 
         let remaining = totalSize - position
-        if remaining <= 0L then 0
+
+        if remaining <= 0L then
+            0
         else
             let bytesToRead = Math.Min(int64 count, remaining) |> int
             Array.Fill(buffer, 0uy, offset, bytesToRead)
@@ -49,6 +51,7 @@ type FaultyNetworkStream(totalSize: int64, breakAtByte: int64 option, slowDelayM
     override _.ReadAsync(buffer: Memory<byte>, ct: CancellationToken) : ValueTask<int> =
         task {
             ct.ThrowIfCancellationRequested()
+
             if slowDelayMs > 0 then
                 do! Task.Delay(slowDelayMs, ct)
 
@@ -58,8 +61,10 @@ type FaultyNetworkStream(totalSize: int64, breakAtByte: int64 option, slowDelayM
             | _ -> ()
 
             let remaining = totalSize - position
+
             let bytesRead =
-                if remaining <= 0L then 0
+                if remaining <= 0L then
+                    0
                 else
                     let count = Math.Min(int64 buffer.Length, remaining) |> int
                     buffer.Span.Slice(0, count).Clear()
@@ -85,6 +90,7 @@ type MockHttpMessageHandler(totalSize: int64, breakAtByte: int64 option, slowDel
             | null -> ()
             | rangeHeader ->
                 let ranges = rangeHeader.Ranges
+
                 if ranges.Count > 0 then
                     match ranges |> Seq.tryHead with
                     | Some r when r.From.HasValue -> startingPos <- r.From.Value
@@ -93,7 +99,14 @@ type MockHttpMessageHandler(totalSize: int64, breakAtByte: int64 option, slowDel
             let remainingSize = totalSize - startingPos
             let stream = new FaultyNetworkStream(remainingSize, breakAtByte, slowDelayMs)
 
-            let response = new HttpResponseMessage(if startingPos > 0L then HttpStatusCode.PartialContent else HttpStatusCode.OK)
+            let response =
+                new HttpResponseMessage(
+                    if startingPos > 0L then
+                        HttpStatusCode.PartialContent
+                    else
+                        HttpStatusCode.OK
+                )
+
             response.Content <- new StreamContent(stream)
             response.Content.Headers.ContentLength <- Nullable<int64>(remainingSize)
             return response
@@ -104,18 +117,16 @@ type MockHttpMessageHandler(totalSize: int64, breakAtByte: int64 option, slowDel
 module EngineIntegrationTests =
 
     /// Simulates a download using a single SegmentDownloader backed by a mock HTTP handler
-    let runDownloadSimulation
-        (handler: HttpMessageHandler)
-        (ct: CancellationToken)
-        (onProgress: int64<B> -> unit)
-        =
+    let runDownloadSimulation (handler: HttpMessageHandler) (ct: CancellationToken) (onProgress: int64<B> -> unit) =
         task {
             use client = new HttpClient(handler)
             client.Timeout <- Timeout.InfiniteTimeSpan
 
             try
                 // Use HttpCompletionOption.ResponseHeadersRead for streaming
-                use! response = client.GetAsync("http://test.local/file.bin", HttpCompletionOption.ResponseHeadersRead, ct)
+                use! response =
+                    client.GetAsync("http://test.local/file.bin", HttpCompletionOption.ResponseHeadersRead, ct)
+
                 use! stream = response.Content.ReadAsStreamAsync(ct)
 
                 let buffer = Array.zeroCreate<byte> 8192
@@ -126,15 +137,19 @@ module EngineIntegrationTests =
                     try
                         let! read = stream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)
                         bytesRead <- read
+
                         if bytesRead > 0 then
                             totalRead <- totalRead + int64 bytesRead
                             onProgress (totalRead * 1L<B>)
                     with :? IOException ->
                         bytesRead <- -1
 
-                if ct.IsCancellationRequested then return Result.Error "Cancelled"
-                elif bytesRead = -1 then return Result.Error "Network connection lost"
-                else return Result.Ok (totalRead * 1L<B>)
+                if ct.IsCancellationRequested then
+                    return Result.Error "Cancelled"
+                elif bytesRead = -1 then
+                    return Result.Error "Network connection lost"
+                else
+                    return Result.Ok(totalRead * 1L<B>)
             with
             | :? OperationCanceledException -> return Result.Error "Cancelled"
             | ex -> return Result.Error ex.Message
@@ -168,6 +183,7 @@ module EngineIntegrationTests =
                         cts.Cancel())
 
             let! result = downloadTask
+
             match result with
             | Result.Error msg -> Assert.Equal("Cancelled", msg)
             | Result.Ok _ -> Assert.Fail("Download should have been cancelled mid-stream.")
@@ -199,6 +215,7 @@ module EngineIntegrationTests =
     let ``HashVerifier computes consistent hash`` () =
         async {
             let testFile = Path.GetTempFileName()
+
             try
                 let content = "Hello, SDM!"B
                 File.WriteAllBytes(testFile, content)
@@ -211,7 +228,8 @@ module EngineIntegrationTests =
                 // SHA256 hex string should be 64 lowercase hex chars
                 Assert.Equal(64, hash1.Length)
             finally
-                if File.Exists testFile then File.Delete testFile
+                if File.Exists testFile then
+                    File.Delete testFile
         }
         |> Async.RunSynchronously
 
@@ -219,6 +237,7 @@ module EngineIntegrationTests =
     let ``HashVerifier detects mismatch`` () =
         async {
             let testFile = Path.GetTempFileName()
+
             try
                 let content = "Hello, SDM!"B
                 File.WriteAllBytes(testFile, content)
@@ -231,6 +250,7 @@ module EngineIntegrationTests =
                 let! matches = HashVerifier.verifyHash SHA256 hash testFile cts.Token
                 Assert.False(matches, "Hash should not match for different content.")
             finally
-                if File.Exists testFile then File.Delete testFile
+                if File.Exists testFile then
+                    File.Delete testFile
         }
         |> Async.RunSynchronously

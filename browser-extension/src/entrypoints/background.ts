@@ -6,8 +6,11 @@ import type {
   ExtensionState,
   PopupMessage,
   PopupStatusResponse,
+  DownloadableMedia,
 } from "@/lib/types";
 import {
+  DEFAULT_PORT,
+  DEFAULT_BYPASS_KEY,
   HEARTBEAT_ALARM,
   HEARTBEAT_INTERVAL_MINUTES,
   MENU_IDS,
@@ -20,10 +23,10 @@ import {
  *
  * Responsibilities:
  * 1. Periodic heartbeat sync with the SDM app via Connector
- * 2. Intercept browser-native downloads (onDeterminingFilename)
- * 3. Monitor webRequest traffic via RequestWatcher for matching files
+ * 2. Intercept browser-native downloads (Hybrid: Chromium/Firefox)
+ * 3. Monitor webRequest traffic via RequestWatcher for matching files/media
  * 4. Context menu "Download with SDM" actions
- * 5. Respond to popup status/toggle messages
+ * 5. Communicate with popup and content scripts for UI state
  */
 export default defineBackground({
   type: "module",
@@ -35,11 +38,38 @@ export default defineBackground({
       appConnected: false,
       appEnabled: false,
       userEnabled: true,
+      activePort: DEFAULT_PORT,
+      bypassKey: DEFAULT_BYPASS_KEY,
+      isBypassActive: false,
+      showPopups: true,
+      silentDownload: false,
     };
 
     // Matching config from the app (rebuilt on each sync)
     let fileExts = new Set<string>();
     let blockedHosts = new Set<string>();
+
+    let currentVideoList: readonly DownloadableMedia[] = [];
+
+    // --- Media List Broadcast ---
+
+    function broadcastMediaList(): void {
+      browser.tabs.query({}).then((tabs: any[]) => {
+        for (const tab of tabs) {
+          if (tab.id) {
+            const tabMedia = currentVideoList.filter(
+              (m) => m.tabId === String(tab.id)
+            );
+            browser.tabs.sendMessage(tab.id, {
+              type: "media-list-updated",
+              media: tabMedia,
+            }).catch(() => {
+              // Ignore error for tabs without loaded content scripts
+            });
+          }
+        }
+      });
+    }
 
     // --- Connector ---
 
@@ -47,6 +77,7 @@ export default defineBackground({
       (config: AppSyncConfig) => {
         state.appConnected = true;
         state.appEnabled = config.enabled;
+        state.activePort = connector.getActivePort();
 
         // Rebuild Set-based lookups from the app config
         fileExts = new Set(config.fileExts.map((e) => e.toUpperCase()));
@@ -59,6 +90,12 @@ export default defineBackground({
           mediaExts: new Set(config.requestFileExts),
         });
 
+        // Update video list and broadcast to content scripts
+        if (config.videoList) {
+          currentVideoList = config.videoList;
+          broadcastMediaList();
+        }
+
         updateIcon();
       },
       () => {
@@ -69,8 +106,14 @@ export default defineBackground({
 
     // ─── Request Watcher ──────────────────────────────────────────────────
 
-    const requestWatcher = new RequestWatcher((data) => {
+    const requestWatcher = new RequestWatcher((data: any) => {
       if (!isMonitoringActive()) return;
+
+      const mimeType = extractMimeType(data.responseHeaders) ?? undefined;
+      // Determine if request is a media stream (HLS or video/audio content type)
+      const isMedia =
+        (mimeType && (mimeType.startsWith("audio/") || mimeType.startsWith("video/"))) ||
+        (data.url && (data.url.includes(".m3u8") || data.url.includes(".ts")));
 
       const req: DownloadRequest = {
         url: data.url,
@@ -80,10 +123,16 @@ export default defineBackground({
         responseHeaders: data.responseHeaders,
         referrer: data.tabUrl ?? undefined,
         fileSize: extractFileSize(data.responseHeaders) ?? undefined,
-        mimeType: extractMimeType(data.responseHeaders) ?? undefined,
+        mimeType: mimeType,
         tabUrl: data.tabUrl ?? undefined,
+        silentDownload: state.silentDownload,
       };
-      connector.sendDownload(req);
+
+      if (isMedia) {
+        connector.sendMedia(req);
+      } else {
+        connector.sendDownload(req);
+      }
     });
 
     // --- Helpers ---
@@ -117,7 +166,7 @@ export default defineBackground({
         const pathToCheck = (filename ?? parsed.pathname).toUpperCase();
         const lastDotIdx = pathToCheck.lastIndexOf(".");
 
-        if (lastDotIdx === -1) {
+        if (lastDotIdx !== -1) {
           const ext = pathToCheck.slice(lastDotIdx + 1);
           return fileExts.has(ext);
         }
@@ -158,28 +207,29 @@ export default defineBackground({
               "128": `/icon/128${suffix}.png`,
             },
           })
-          .catch((err) => console.error("Icon update failed:", err));
+          .catch((err: any) => console.error("Icon update failed:", err));
       } catch (err) {
         /* fail silently to not break background script */
       }
     }
 
-    // --- Download Interception ---
-    // Intercept browser-native downloads via the downloads API.
-    // onDeterminingFilename fires after the browser resolves the filename,
-    // giving us the final URL, filename, MIME type, and file size.
-    if (browser.downloads?.onDeterminingFilename) {
-      browser.downloads.onDeterminingFilename.addListener(
+    // --- Download Interception (Hybrid: Chrome & Firefox Support) ---
+
+    const isChromium = typeof (browser.downloads as any).onDeterminingFilename !== "undefined";
+
+    if (isChromium) {
+      // Chromium clean interception
+      (browser.downloads as any).onDeterminingFilename.addListener(
         (
           item: Browser.downloads.DownloadItem,
           suggest: (suggestion?: Browser.downloads.FilenameSuggestion) => void,
         ) => {
-          if (!isMonitoringActive()) return;
+          if (!isMonitoringActive() || state.isBypassActive) return;
 
           const url = item.finalUrl || item.url;
           if (!shouldIntercept(url, item.filename)) return;
 
-          // Cancel the browser's native download
+          // Cancel the browser's native download immediately
           browser.downloads.cancel(item.id).then(() => {
             browser.downloads.erase({ id: item.id });
           });
@@ -194,6 +244,36 @@ export default defineBackground({
           );
         },
       );
+    } else if (browser.downloads?.onCreated) {
+      // Firefox fallback interception
+      browser.downloads.onCreated.addListener(async (item: any) => {
+        if (!isMonitoringActive() || state.isBypassActive) return;
+
+        // Skip extension-initiated downloads to prevent loops
+        if (item.byExtensionId) return;
+
+        const url = item.finalUrl || item.url;
+        if (!shouldIntercept(url, item.filename)) return;
+
+        // Cancel and erase native download
+        await browser.downloads.cancel(item.id);
+        await browser.downloads.erase({ id: item.id });
+        try {
+          // Erase temporary file from Firefox if created
+          await (browser.downloads as any).removeFile(item.id);
+        } catch {
+          // Safe to ignore if file wasn't created yet
+        }
+
+        // Route to SDM app instead
+        triggerDownload(
+          url,
+          item.filename,
+          item.referrer ?? null,
+          item.fileSize,
+          item.mime ?? null,
+        );
+      });
     }
 
     // --- Download Trigger ---
@@ -208,13 +288,13 @@ export default defineBackground({
       // Retrieve cookies for the target URL for authenticated downloads
       browser.cookies
         .getAll({ url })
-        .then((cookies) => {
+        .then((cookies: any[]) => {
           return cookies?.length
-            ? cookies.map((c) => `${c.name}=${c.value}`).join("; ")
+            ? cookies.map((c: any) => `${c.name}=${c.value}`).join("; ")
             : null;
         })
         .catch(() => undefined) // Fallback silently if no permission
-        .then((cookieStr) => {
+        .then((cookieStr: string | null | undefined) => {
           const reqHeaders: Record<string, string[]> = {
             "User-Agent": [navigator.userAgent],
           };
@@ -235,6 +315,7 @@ export default defineBackground({
             fileSize: size ?? undefined,
             mimeType: mime ?? undefined,
             tabUrl: referrer ?? undefined,
+            silentDownload: state.silentDownload,
           };
 
           connector.sendDownload(request);
@@ -258,7 +339,7 @@ export default defineBackground({
       });
     });
 
-    browser.contextMenus.onClicked.addListener((info) => {
+    browser.contextMenus.onClicked.addListener((info: any) => {
       if (!connector.isConnected()) return;
 
       let url: string | undefined;
@@ -281,51 +362,146 @@ export default defineBackground({
       when: Date.now() + 1_000,
     });
 
-    browser.alarms.onAlarm.addListener((alarm) => {
+    browser.alarms.onAlarm.addListener((alarm: any) => {
       if (alarm.name === HEARTBEAT_ALARM) {
         connector.sync();
       }
     });
 
-    // --- Popup Message Handler ---
+    // --- Popup & Content Script Message Handler ---
+    const getStatusResponse = () => ({
+      connected: state.appConnected,
+      appEnabled: state.appEnabled,
+      userEnabled: state.userEnabled,
+      activePort: state.activePort,
+      bypassKey: state.bypassKey,
+      showPopups: state.showPopups,
+      silentDownload: state.silentDownload,
+    });
+
     browser.runtime.onMessage.addListener(
-      (
-        message: PopupMessage,
-        _sender: Browser.runtime.MessageSender,
-        sendResponse: (response: PopupStatusResponse) => void,
-      ) => {
+      (message: any, sender: any, sendResponse: (res?: any) => void) => {
+        // Handle Popup Messages
         if (message.type === "get-status") {
-          sendResponse({
-            connected: state.appConnected,
-            appEnabled: state.appEnabled,
-            userEnabled: state.userEnabled,
-          });
+          sendResponse(getStatusResponse());
         } else if (message.type === "set-enabled") {
           state.userEnabled = message.enabled;
-          // Persist user preference
           browser.storage.local.set({
             [STORAGE_KEYS.USER_ENABLED]: message.enabled,
           });
           updateIcon();
-          sendResponse({
-            connected: state.appConnected,
-            appEnabled: state.appEnabled,
-            userEnabled: state.userEnabled,
+          sendResponse(getStatusResponse());
+        } else if (message.type === "set-bypass-key") {
+          state.bypassKey = message.key;
+          browser.storage.local.set({
+            [STORAGE_KEYS.BYPASS_KEY]: message.key,
           });
+          sendResponse(getStatusResponse());
+        } else if (message.type === "set-show-popups") {
+          state.showPopups = message.enabled;
+          browser.storage.local.set({
+            [STORAGE_KEYS.SHOW_POPUPS]: message.enabled,
+          });
+          // Broadcast to tabs so content script can hide or show the widget
+          browser.tabs.query({}).then((tabs: any[]) => {
+            for (const tab of tabs) {
+              if (tab.id) {
+                browser.tabs.sendMessage(tab.id, {
+                  type: "show-popups-changed",
+                  enabled: message.enabled,
+                }).catch(() => {});
+              }
+            }
+          });
+          sendResponse(getStatusResponse());
+        } else if (message.type === "set-silent-download") {
+          state.silentDownload = message.enabled;
+          browser.storage.local.set({
+            [STORAGE_KEYS.SILENT_DOWNLOAD]: message.enabled,
+          });
+          sendResponse(getStatusResponse());
+        } else if (message.type === "set-bypass-state") {
+          state.isBypassActive = message.active;
+          sendResponse({ success: true });
+        }
+        
+        // Handle Content Script Messages
+        else if (message.type === "get-config") {
+          const tabId = sender.tab?.id;
+          const tabMedia = tabId
+            ? currentVideoList.filter((m) => m.tabId === String(tabId))
+            : [];
+          sendResponse({
+            userEnabled: state.userEnabled,
+            appEnabled: state.appEnabled,
+            connected: state.appConnected,
+            bypassKey: state.bypassKey,
+            showPopups: state.showPopups,
+            media: tabMedia,
+          });
+        } else if (message.type === "download-links") {
+          if (message.links && message.links.length > 0) {
+            for (const link of message.links) {
+              triggerDownload(link, null, sender.tab?.url ?? null, null, null);
+            }
+          }
+          sendResponse({ success: true });
+        } else if (message.type === "media-click") {
+          if (message.mediaId) {
+            fetch(`http://127.0.0.1:${connector.getActivePort()}/vid`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                Vid: message.mediaId,
+                silentDownload: state.silentDownload,
+              }),
+            }).catch((err) => console.error("Failed to trigger video download:", err));
+          }
+          sendResponse({ success: true });
         }
         return true;
       },
     );
 
+    // --- Sync Tab Titles to SDM Desktop App ---
+    browser.tabs.onUpdated.addListener((tabId: number, changeInfo: any, tab: any) => {
+      if (changeInfo.title && tab.url && state.appConnected) {
+        fetch(`http://127.0.0.1:${connector.getActivePort()}/tab-update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ TabUrl: tab.url, TabTitle: changeInfo.title }),
+        }).catch(() => {});
+      }
+    });
+
     // --- Startup ---
 
     // Restore persisted user preference
-    browser.storage.local.get(STORAGE_KEYS.USER_ENABLED).then((result) => {
+    browser.storage.local.get(STORAGE_KEYS.USER_ENABLED).then((result: any) => {
       const stored = result[STORAGE_KEYS.USER_ENABLED];
       if (typeof stored === "boolean") state.userEnabled = stored;
+    });
+
+    // Restore persisted bypass key preference
+    browser.storage.local.get(STORAGE_KEYS.BYPASS_KEY).then((result: any) => {
+      const stored = result[STORAGE_KEYS.BYPASS_KEY];
+      if (typeof stored === "string") state.bypassKey = stored;
+    });
+
+    // Restore persisted show popups preference
+    browser.storage.local.get(STORAGE_KEYS.SHOW_POPUPS).then((result: any) => {
+      const stored = result[STORAGE_KEYS.SHOW_POPUPS];
+      if (typeof stored === "boolean") state.showPopups = stored;
+    });
+
+    // Restore persisted silent download preference
+    browser.storage.local.get(STORAGE_KEYS.SILENT_DOWNLOAD).then((result: any) => {
+      const stored = result[STORAGE_KEYS.SILENT_DOWNLOAD];
+      if (typeof stored === "boolean") state.silentDownload = stored;
     });
 
     requestWatcher.register();
     connector.sync();
   },
 });
+

@@ -96,12 +96,21 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
                 path
             else
                 let dir = Path.GetDirectoryName path |> Option.ofObj |> Option.defaultValue ""
-                let name = Path.GetFileNameWithoutExtension path |> Option.ofObj |> Option.defaultValue "download"
+
+                let name =
+                    Path.GetFileNameWithoutExtension path
+                    |> Option.ofObj
+                    |> Option.defaultValue "download"
+
                 let ext = Path.GetExtension path |> Option.ofObj |> Option.defaultValue ""
 
                 let rec findAvailable (n: int) =
                     let candidate = Path.Combine(dir, $"{name} ({n}){ext}")
-                    if File.Exists candidate then findAvailable (n + 1) else candidate
+
+                    if File.Exists candidate then
+                        findAvailable (n + 1)
+                    else
+                        candidate
 
                 findAvailable 1
 
@@ -187,7 +196,10 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
         | DownloadAssembling id ->
             log.Information("Download assembling: {FileName}", entryRef.Value.FileName)
 
-            let updated = { entryRef.Value with Status = Assembling }
+            let updated =
+                { entryRef.Value with
+                    Status = Assembling }
+
             DownloadStore.upsert connectionString updated
             entryRef.Value <- updated
 
@@ -255,22 +267,14 @@ type DownloadManager(configStore: AppConfig.ConfigStore, connectionString: strin
             try
                 let entry = buildEntry request
 
-                log.Information(
-                    "Adding download: {FileName} from {Url}",
-                    entry.FileName,
-                    entry.Url
-                )
+                log.Information("Adding download: {FileName} from {Url}", entry.FileName, entry.Url)
 
                 let! input =
                     async {
                         try
                             return! probeAndInput entry
                         with ex ->
-                            log.Warning(
-                                ex,
-                                "Probe failed for {Url}, proceeding with defaults",
-                                entry.Url
-                            )
+                            log.Warning(ex, "Probe failed for {Url}, proceeding with defaults", entry.Url)
                             return entry
                     }
 

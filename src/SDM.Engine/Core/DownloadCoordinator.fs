@@ -8,21 +8,23 @@ open Serilog
 
 /// Internal state of the download coordinator actor.
 type private CoordinatorState =
-    { Entry: DownloadEntry
-      Workers: Map<Guid, SegmentDownloader>
-      Cts: CancellationTokenSource
-      LastUpdateTime: DateTime
-      LastTotalDownloaded: int64<B>
-      LastSpeedSampleTime: DateTime
-      CurrentSpeed: int64<Bps>
-      RetryCount: Map<Guid, int>
-      SpeedLimiter: SpeedLimiter.ThrottleState
-      TempFilePath: string
-      /// Per-segment progress snapshot for dynamic splitting and speed tracking
-      SegmentLastProgress: Map<Guid, int64<B>>
-      SegmentSpeed: Map<Guid, int64<Bps>>
-      /// When we last checked for slow segments to split
-      LastSplitCheck: DateTime }
+    {
+        Entry: DownloadEntry
+        Workers: Map<Guid, SegmentDownloader>
+        Cts: CancellationTokenSource
+        LastUpdateTime: DateTime
+        LastTotalDownloaded: int64<B>
+        LastSpeedSampleTime: DateTime
+        CurrentSpeed: int64<Bps>
+        RetryCount: Map<Guid, int>
+        SpeedLimiter: SpeedLimiter.ThrottleState
+        TempFilePath: string
+        /// Per-segment progress snapshot for dynamic splitting and speed tracking
+        SegmentLastProgress: Map<Guid, int64<B>>
+        SegmentSpeed: Map<Guid, int64<Bps>>
+        /// When we last checked for slow segments to split
+        LastSplitCheck: DateTime
+    }
 
 /// The Coordinator Actor manages the full lifecycle of a single download.
 /// Splits into segments, manages workers, aggregates progress, handles pause/resume,
@@ -43,13 +45,16 @@ type DownloadCoordinator
     let retryConfig = RetryPolicy.defaults
 
     /// Minimum remaining bytes before considering a segment for dynamic split (1 MB)
-    let [<Literal>] MinSplitRemainingBytes = 1L * 1024L * 1024L
+    [<Literal>]
+    let MinSplitRemainingBytes = 1L * 1024L * 1024L
 
     /// Speed ratio threshold: segment speed / average speed below this triggers split
-    let [<Literal>] SplitSpeedRatio = 0.5
+    [<Literal>]
+    let SplitSpeedRatio = 0.5
 
     /// How often (seconds) to check for slow segments to split
-    let [<Literal>] SplitCheckIntervalSec = 2.0
+    [<Literal>]
+    let SplitCheckIntervalSec = 2.0
 
     /// Split a download into evenly-sized segments
     let splitSegments (totalSize: int64<B>) (maxSegments: int) =
@@ -60,11 +65,7 @@ type DownloadCoordinator
         |> List.map (fun i ->
             let offset = int64 i * segmentSize
 
-            let length =
-                if i = maxSegments - 1 then
-                    size - offset
-                else
-                    segmentSize
+            let length = if i = maxSegments - 1 then size - offset else segmentSize
 
             { id = Guid.NewGuid()
               Offset = offset * 1L<B>
@@ -120,9 +121,7 @@ type DownloadCoordinator
                     let segmentCount = state.Workers.Count
 
                     // Compute per-segment progress snapshot
-                    let currentProgress =
-                        state.Workers
-                        |> Map.map (fun _id w -> w.CurrentProgress)
+                    let currentProgress = state.Workers |> Map.map (fun _id w -> w.CurrentProgress)
 
                     // Compute per-segment speed (bytes/sec since last check)
                     let segmentSpeed =
@@ -131,6 +130,7 @@ type DownloadCoordinator
                             match state.SegmentLastProgress |> Map.tryFind id with
                             | Some lastProgress ->
                                 let deltaB = int64 progress - int64 lastProgress
+
                                 let deltaS =
                                     match state.SegmentLastProgress |> Map.tryFind id with
                                     | Some _ -> max 0.1 (now - state.LastSplitCheck).TotalSeconds
@@ -143,7 +143,8 @@ type DownloadCoordinator
                             | None -> 0L<Bps>)
 
                     let avgSpeed =
-                        if segmentCount = 0 then 0L<Bps>
+                        if segmentCount = 0 then
+                            0L<Bps>
                         else
                             let total = segmentSpeed |> Map.values |> Seq.sumBy int64
                             int64 (total / int64 segmentCount) * 1L<Bps>
@@ -182,7 +183,8 @@ type DownloadCoordinator
                         let newSegId = Guid.NewGuid()
 
                         let updatedOriginalSeg =
-                            { seg with Length = splitPoint - seg.Offset }
+                            { seg with
+                                Length = splitPoint - seg.Offset }
 
                         let newSeg =
                             { id = newSegId
@@ -213,13 +215,17 @@ type DownloadCoordinator
 
                         let newWorker1 =
                             createWorker updatedOriginalSeg state.Entry.Url state.TempFilePath inbox state.SpeedLimiter
+
                         newWorker1.Post Start
 
                         let newWorker2 =
                             createWorker newSeg state.Entry.Url state.TempFilePath inbox state.SpeedLimiter
+
                         newWorker2.Post Start
 
-                        let updatedEntry = { state.Entry with Segments = updatedSegments }
+                        let updatedEntry =
+                            { state.Entry with
+                                Segments = updatedSegments }
 
                         { state with
                             Entry = updatedEntry
@@ -243,8 +249,7 @@ type DownloadCoordinator
             /// Begin assembling segments using FileAssembler
             let beginAssembly (state: CoordinatorState) =
                 async {
-                    let assemblingEntry =
-                        { state.Entry with Status = Assembling }
+                    let assemblingEntry = { state.Entry with Status = Assembling }
 
                     onStateChange assemblingEntry
                     eventHandler (DownloadAssembling state.Entry.Id)
@@ -270,7 +275,12 @@ type DownloadCoordinator
 
                         return None // Assembly succeeded, proceed to hash check
                     with ex ->
-                        log.Error(ex, "File assembly failed for {FileName}: {Message}", state.Entry.FileName, ex.Message)
+                        log.Error(
+                            ex,
+                            "File assembly failed for {FileName}: {Message}",
+                            state.Entry.FileName,
+                            ex.Message
+                        )
 
                         let errorEntry =
                             { assemblingEntry with
@@ -288,8 +298,7 @@ type DownloadCoordinator
                     match state.Entry.Hash with
                     | None -> return None
                     | Some(algo, expectedHash) ->
-                        let! hashOk =
-                            HashVerifier.verifyHash algo expectedHash state.Entry.TargetPath state.Cts.Token
+                        let! hashOk = HashVerifier.verifyHash algo expectedHash state.Entry.TargetPath state.Cts.Token
 
                         if not hashOk then
                             let errorEntry =
@@ -306,7 +315,12 @@ type DownloadCoordinator
                             )
 
                             disposeWorkers state.Workers
-                            return Some { state with Entry = errorEntry; Workers = Map.empty }
+
+                            return
+                                Some
+                                    { state with
+                                        Entry = errorEntry
+                                        Workers = Map.empty }
                         else
                             log.Information(
                                 "Hash verified for {FileName}: {Algo} = {Hash}",
@@ -314,6 +328,7 @@ type DownloadCoordinator
                                 algo,
                                 expectedHash
                             )
+
                             return None
                 }
 
@@ -321,11 +336,13 @@ type DownloadCoordinator
             let completeDownload (state: CoordinatorState) (assemblingEntry: DownloadEntry) =
                 async {
                     let tempDir = Path.GetDirectoryName state.TempFilePath
+
                     if not (isNull tempDir) && Directory.Exists tempDir then
                         Directory.Delete(tempDir, recursive = true)
 
                     let finalEntry =
-                        { assemblingEntry with Status = Completed DateTime.UtcNow }
+                        { assemblingEntry with
+                            Status = Completed DateTime.UtcNow }
 
                     onStateChange finalEntry
                     eventHandler (DownloadFinished(state.Entry.Id, state.Entry.TargetPath))
@@ -343,6 +360,7 @@ type DownloadCoordinator
                             Entry = finalEntry
                             Workers = Map.empty }
                 }
+
             let rec loop (state: CoordinatorState) =
                 async {
                     let! msg = inbox.Receive()
@@ -351,8 +369,11 @@ type DownloadCoordinator
                     | Start
                     | Resume ->
                         let msgText =
-                            if msg = Start then "Starting download: {FileName} ({Url})"
-                            else "Resuming download: {FileName} ({Url})"
+                            if msg = Start then
+                                "Starting download: {FileName} ({Url})"
+                            else
+                                "Resuming download: {FileName} ({Url})"
+
                         log.Information(msgText, state.Entry.FileName, state.Entry.Url)
 
                         let isResume = (msg = Resume)
@@ -376,7 +397,12 @@ type DownloadCoordinator
                                     segs
                                     |> List.map (fun seg ->
                                         let w =
-                                            createWorker seg state.Entry.Url state.TempFilePath inbox state.SpeedLimiter
+                                            createWorker
+                                                seg
+                                                state.Entry.Url
+                                                state.TempFilePath
+                                                inbox
+                                                state.SpeedLimiter
 
                                         w.Post Start
                                         seg.id, w)
@@ -416,15 +442,13 @@ type DownloadCoordinator
                         let now = DateTime.UtcNow
 
                         // Compute speed from delta bytes / delta time (bytes per second)
-                        let elapsed =
-                            (now - state.LastSpeedSampleTime).TotalSeconds
+                        let elapsed = (now - state.LastSpeedSampleTime).TotalSeconds
 
                         let currentSpeed =
                             if elapsed > 0.5 then
                                 let delta = int64 total - int64 state.LastTotalDownloaded
 
-                                let newSpeed =
-                                    int64 (float delta / elapsed) * 1L<Bps>
+                                let newSpeed = int64 (float delta / elapsed) * 1L<Bps>
 
                                 newSpeed
                             else
@@ -438,25 +462,17 @@ type DownloadCoordinator
                                     { state with
                                         CurrentSpeed = currentSpeed
                                         LastTotalDownloaded =
-                                            if elapsed > 0.5 then total
-                                            else state.LastTotalDownloaded
-                                        LastSpeedSampleTime =
-                                            if elapsed > 0.5 then now
-                                            else state.LastSpeedSampleTime }
+                                            if elapsed > 0.5 then total else state.LastTotalDownloaded
+                                        LastSpeedSampleTime = if elapsed > 0.5 then now else state.LastSpeedSampleTime }
                             else
                                 { state with
                                     CurrentSpeed = currentSpeed
-                                    LastTotalDownloaded =
-                                        if elapsed > 0.5 then total
-                                        else state.LastTotalDownloaded
-                                    LastSpeedSampleTime =
-                                        if elapsed > 0.5 then now
-                                        else state.LastSpeedSampleTime }
+                                    LastTotalDownloaded = if elapsed > 0.5 then total else state.LastTotalDownloaded
+                                    LastSpeedSampleTime = if elapsed > 0.5 then now else state.LastSpeedSampleTime }
 
                         let progress =
                             match stateAfterSplit.Entry.TotalSize with
-                            | Some totalSz when totalSz > 0L<B> ->
-                                float total / float totalSz * 100.0
+                            | Some totalSz when totalSz > 0L<B> -> float total / float totalSz * 100.0
                             | _ -> 0.0
 
                         // Throttle progress events to ~10 FPS
@@ -521,7 +537,8 @@ type DownloadCoordinator
                             | None ->
                                 // Assembly succeeded, verify hash
                                 let assemblingEntry =
-                                    { updatedEntry with Status = Assembling }
+                                    { updatedEntry with
+                                        Status = Assembling }
 
                                 let! hashResult = verifyHash { state with Entry = updatedEntry } assemblingEntry
 
@@ -531,7 +548,9 @@ type DownloadCoordinator
                                     return! loop errorState
                                 | None ->
                                     // Hash OK, complete download
-                                    let! finalState = completeDownload { state with Entry = updatedEntry } assemblingEntry
+                                    let! finalState =
+                                        completeDownload { state with Entry = updatedEntry } assemblingEntry
+
                                     return! loop finalState
                         else
                             onStateChange updatedEntry
@@ -644,31 +663,31 @@ type DownloadCoordinator
                             |> List.map (fun s ->
                                 if s.id = segId then
                                     // Shorten the original segment
-                                    { s with Length = newSeg.Offset - s.Offset }
+                                    { s with
+                                        Length = newSeg.Offset - s.Offset }
                                 else
                                     s)
                             |> List.append [ newSeg ]
 
                         let newWorker =
                             createWorker newSeg state.Entry.Url state.TempFilePath inbox state.SpeedLimiter
+
                         newWorker.Post Start
 
-                        let updatedEntry = { state.Entry with Segments = updatedSegments }
+                        let updatedEntry =
+                            { state.Entry with
+                                Segments = updatedSegments }
 
                         return!
                             loop
                                 { state with
                                     Entry = updatedEntry
                                     Workers = state.Workers.Add(newSeg.id, newWorker)
-                                    SegmentLastProgress =
-                                        state.SegmentLastProgress.Add(newSeg.id, 0L<B>)
+                                    SegmentLastProgress = state.SegmentLastProgress.Add(newSeg.id, 0L<B>)
                                     SegmentSpeed = state.SegmentSpeed.Add(newSeg.id, 0L<Bps>) }
 
                     | BeginAssembly ->
-                        log.Information(
-                            "BeginAssembly received for {FileName}",
-                            state.Entry.FileName
-                        )
+                        log.Information("BeginAssembly received for {FileName}", state.Entry.FileName)
 
                         let! assemblyResult = beginAssembly state
 
@@ -677,14 +696,12 @@ type DownloadCoordinator
                             disposeWorkers errorState.Workers
                             return! loop errorState
                         | None ->
-                            let assemblingEntry =
-                                { state.Entry with Status = Assembling }
+                            let assemblingEntry = { state.Entry with Status = Assembling }
 
                             let! hashResult = verifyHash state assemblingEntry
 
                             match hashResult with
-                            | Some errorState ->
-                                return! loop errorState
+                            | Some errorState -> return! loop errorState
                             | None ->
                                 let! finalState = completeDownload state assemblingEntry
                                 return! loop finalState
@@ -693,8 +710,7 @@ type DownloadCoordinator
                         let updatedEntry = { state.Entry with Status = status }
                         onStateChange updatedEntry
 
-                        eventOpt
-                        |> Option.iter (fun evt -> eventHandler evt)
+                        eventOpt |> Option.iter (fun evt -> eventHandler evt)
 
                         return! loop { state with Entry = updatedEntry }
 
@@ -750,9 +766,7 @@ type DownloadCoordinator
             let speedLimiter = SpeedLimiter.create speedLimitKBps
 
             let initialState =
-                { Entry =
-                    { entry with
-                        Segments = segments }
+                { Entry = { entry with Segments = segments }
                   Workers = Map.empty
                   Cts = new CancellationTokenSource()
                   LastUpdateTime = DateTime.MinValue

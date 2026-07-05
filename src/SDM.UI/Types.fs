@@ -12,18 +12,24 @@ type DownloadDisplayItem =
       FileName: string
       Url: string
       SizeText: string
+      TotalSizeBytes: int64
       SpeedText: string
+      SpeedBps: int64
       EtaText: string
+      EtaSeconds: float
       DateText: string
+      AddedAt: DateTime
       Progress: float
       ProgressInt: int
       StatusText: string
       FileCategory: string
+      CategoryName: string
       IsActive: bool
       IsPaused: bool
       IsCompleted: bool
       IsSelected: bool
-      IsError: bool }
+      IsError: bool
+      TargetPath: string }
 
     /// Create a display item from a Domain DownloadEntry
     static member FromEntry(entry: DownloadEntry) =
@@ -49,27 +55,37 @@ type DownloadDisplayItem =
           FileName = entry.FileName
           Url = string entry.Url
           SizeText = Helpers.FormatHelper.formatSize totalSize
+          TotalSizeBytes = totalSize
           SpeedText =
             match entry.Status with
             | Downloading(s, _) when s > 0L<Bps> -> Helpers.FormatHelper.formatSpeed (int64 s)
             | _ -> ""
+          SpeedBps =
+            match entry.Status with
+            | Downloading(s, _) -> int64 s
+            | _ -> 0L
           EtaText = ""
+          EtaSeconds = Double.MaxValue
           DateText = entry.AddedAt.ToString("MMM dd")
+          AddedAt = entry.AddedAt
           Progress = progress
           ProgressInt = progress |> int |> min 100 |> max 0
           StatusText = statusText
           FileCategory = Helpers.FormatHelper.getFileCategory entry.FileName
+          CategoryName = Theme.CategoryDefs.categoryOf entry
           IsActive = statusText.StartsWith "Downloading" || statusText = "Starting"
           IsPaused = statusText = "Paused"
           IsCompleted = statusText = "Completed"
           IsSelected = false
-          IsError = statusText.StartsWith "Error" }
+          IsError = statusText.StartsWith "Error"
+          TargetPath = entry.TargetPath }
 
 /// Modal dialog types that can be open simultaneously or exclusively
 type DialogState =
     | NoDialog
     | NewDownload of url: string * fileName: string * targetFolder: string * isSubmitting: bool
     | DeleteConfirm of id: Guid * fileName: string * deleteFiles: bool
+    | DeleteConfirmMultiple of ids: Guid list * displayNames: string * deleteFiles: bool
     | SpeedLimiter of isEnabled: bool * limitKBps: int
     | DownloadComplete of filePath: string * folderPath: string * dontShowAgain: bool
 
@@ -83,6 +99,7 @@ type SearchQuery =
 type Model =
     { Downloads: DownloadDisplayItem list
       SelectedDownload: Guid option
+      SelectedCategory: string
       ActiveCount: int
       ActiveDialog: DialogState
       SearchQuery: SearchQuery
@@ -91,7 +108,11 @@ type Model =
       SpeedLimitKBps: int
       DownloadManager: SDM.Application.DownloadManager
       QueueScheduler: SDM.Application.QueueScheduler
-      ConfigStore: AppConfig.ConfigStore }
+      ConfigStore: AppConfig.ConfigStore
+      BrowserMonitor: Helpers.BrowserMonitor
+      ExpandedCategories: Set<string>
+      SortColumn: string
+      SortAscending: bool }
 
 /// All user interactions and system events — the single message type driving the update loop.
 type Msg =
@@ -101,6 +122,9 @@ type Msg =
     | PauseDownload of id: Guid
     | CancelDownload of id: Guid
     | RemoveDownload of id: Guid * deleteFiles: bool
+    | RemoveDownloads of ids: Guid list * deleteFiles: bool
+    | PauseSelected
+    | ResumeSelected
     // ── UI / Dialogs ──
     | OpenNewDownloadDialog
     | CloseNewDownloadDialog
@@ -108,6 +132,7 @@ type Msg =
     | UpdateNewDownloadFileName of text: string
     | SubmitNewDownload
     | OpenDeleteConfirm of id: Guid * fileName: string
+    | OpenDeleteConfirmMultiple of ids: Guid list * displayNames: string
     | CloseDeleteConfirm
     | ToggleDeleteFiles
     | OpenSpeedLimiter
@@ -119,9 +144,13 @@ type Msg =
     | OpenDownloadComplete of filePath: string * folderPath: string
     | CloseDownloadComplete
     | DontShowCompleteDialog
-    // ── Selection ──
+    // ── Selection & Sorting & Folding ──
     | SelectDownload of id: Guid option
     | ToggleSelectDownload of id: Guid
+    | ToggleSelectAll
+    | SelectCategory of category: string
+    | ToggleCategoryFolder of parent: string
+    | ToggleSort of column: string
     // ── Search ──
     | UpdateSearchQuery of text: string
     | ClearSearch

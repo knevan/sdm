@@ -8,7 +8,8 @@ let private speedUnits = [| "B/s"; "KB/s"; "MB/s"; "GB/s" |]
 
 /// Format byte count to human-readable size string (e.g. "1.5 MB")
 let formatSize (bytes: int64) =
-    if bytes <= 0L then "0 B"
+    if bytes <= 0L then
+        "0 B"
     else
         let mutable order = 0
         let mutable size = float bytes
@@ -21,7 +22,8 @@ let formatSize (bytes: int64) =
 
 /// Format bytes-per-second to speed string (e.g. "2.5 MB/s")
 let formatSpeed (bytesPerSecond: int64) =
-    if bytesPerSecond <= 0L then "0 B/s"
+    if bytesPerSecond <= 0L then
+        "0 B/s"
     else
         let mutable order = 0
         let mutable speed = float bytesPerSecond
@@ -34,11 +36,16 @@ let formatSpeed (bytesPerSecond: int64) =
 
 /// Format a TimeSpan as a human-readable remaining time
 let formatEta (eta: TimeSpan) =
-    if eta = TimeSpan.Zero || eta = TimeSpan.MaxValue then "∞"
-    elif eta.TotalDays >= 1.0 then $"{int eta.TotalDays}d {eta.Hours}h"
-    elif eta.TotalHours >= 1.0 then $"{int eta.TotalHours}h {eta.Minutes}m"
-    elif eta.TotalMinutes >= 1.0 then $"{int eta.TotalMinutes}m {eta.Seconds}s"
-    else $"{eta.Seconds}s"
+    if eta = TimeSpan.Zero || eta = TimeSpan.MaxValue then
+        "∞"
+    elif eta.TotalDays >= 1.0 then
+        $"{int eta.TotalDays}d {eta.Hours}h"
+    elif eta.TotalHours >= 1.0 then
+        $"{int eta.TotalHours}h {eta.Minutes}m"
+    elif eta.TotalMinutes >= 1.0 then
+        $"{int eta.TotalMinutes}m {eta.Seconds}s"
+    else
+        $"{eta.Seconds}s"
 
 /// Format progress percentage
 let formatProgress (progress: float) =

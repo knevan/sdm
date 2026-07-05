@@ -14,9 +14,7 @@ module PlatformLauncher =
             false
         else
             try
-                Process.Start(
-                    ProcessStartInfo(FileName = filePath, UseShellExecute = true)
-                )
+                Process.Start(ProcessStartInfo(FileName = filePath, UseShellExecute = true))
                 |> ignore
 
                 true
@@ -69,11 +67,10 @@ module PlatformLauncher =
                         true
                     else
                         false
+                else if Directory.Exists folderPath then
+                    Process.Start("xdg-open", $"\"{folderPath}\"") |> ignore
+                    true
                 else
-                    if Directory.Exists folderPath then
-                        Process.Start("xdg-open", $"\"{folderPath}\"") |> ignore
-                        true
-                    else
-                        false
+                    false
             with _ ->
                 false

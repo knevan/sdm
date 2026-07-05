@@ -79,12 +79,7 @@ module Networking =
 
                 if not response.IsSuccessStatusCode then
                     return
-                        raise (
-                            DownloadNetworkException(
-                                $"Server returned {response.StatusCode}",
-                                response.StatusCode
-                            )
-                        )
+                        raise (DownloadNetworkException($"Server returned {response.StatusCode}", response.StatusCode))
 
                 let size =
                     response.Content.Headers.ContentLength
@@ -122,7 +117,7 @@ module Networking =
             try
                 log.Information("Probing URL: {Url}", url)
 
-                let config : RetryPolicy.RetryConfig =
+                let config: RetryPolicy.RetryConfig =
                     { MaxRetries = 2
                       BaseDelayMs = 500
                       MaxDelayMs = 5000 }
@@ -131,7 +126,14 @@ module Networking =
             with
             | :? AggregateException as ae ->
                 log.Error(ae, "All probe attempts failed for {Url}", url)
-                return raise (DownloadNetworkException($"Probe failed after retries: {ae.InnerExceptions.[0].Message}", Net.HttpStatusCode.ServiceUnavailable))
+
+                return
+                    raise (
+                        DownloadNetworkException(
+                            $"Probe failed after retries: {ae.InnerExceptions.[0].Message}",
+                            Net.HttpStatusCode.ServiceUnavailable
+                        )
+                    )
             | :? OperationCanceledException ->
                 log.Information("Probe cancelled for {Url}", url)
                 return raise (OperationCanceledException())

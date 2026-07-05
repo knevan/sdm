@@ -41,6 +41,8 @@
     <ItemGroup>
         <Compile Include="Helpers\FormatHelper.fs"/>
         <Compile Include="Helpers\PlatformLauncher.fs"/>
+        <Compile Include="Helpers\ClipboardWatcher.fs"/>
+        <Compile Include="Helpers\BrowserMonitor.fs"/>
         <Compile Include="Theme.fs"/>
         <Compile Include="Types.fs"/>
         <Compile Include="State.fs"/>

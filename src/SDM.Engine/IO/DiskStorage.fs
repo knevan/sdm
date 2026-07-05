@@ -10,6 +10,7 @@ open SDM.Domain
 module DiskUtils =
     let ensureDirectory (path: string) =
         let dir = Path.GetDirectoryName path
+
         match dir with
         | null -> ()
         | d when String.IsNullOrEmpty d -> ()

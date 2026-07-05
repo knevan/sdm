@@ -1,8 +1,10 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    
+
+    <!-- ============================================================
+         .primary  –  modal / dialog action buttons
+    ============================================================ -->
     <Style Selector="Button.primary">
-        <!-- Base Properties -->
         <Setter Property="Background" Value="#01426A"/>
         <Setter Property="Foreground" Value="White"/>
         <Setter Property="Padding" Value="20,10"/>
@@ -13,7 +15,6 @@
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="ClipToBounds" Value="False"/>
-        
         <Setter Property="Transitions">
             <Transitions>
                 <BrushTransition Property="Background" Duration="0:0:0.2"/>
@@ -21,32 +22,127 @@
                 <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
             </Transitions>
         </Setter>
-
-        <!-- Shadow/Effect -->
         <Setter Property="RenderTransform" Value="scale(1)"/>
     </Style>
-
-    <!-- Hover State (^:pointerover means when the class 'primary' is hovered) -->
     <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="#3b82f6"/>
         <Setter Property="Foreground" Value="White"/>
     </Style>
-    
-    <!-- Hover Scale Animation -->
     <Style Selector="Button.primary:pointerover">
         <Setter Property="RenderTransform" Value="scale(1.03)"/>
         <Setter Property="Cursor" Value="Hand"/>
     </Style>
-
-    <!-- Pressed State -->
     <Style Selector="Button.primary:pressed">
         <Setter Property="RenderTransform" Value="scale(0.97)"/>
         <Setter Property="Opacity" Value="0.8"/>
     </Style>
-
-    <!-- Disabled State -->
     <Style Selector="Button.primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="#94a3b8"/>
         <Setter Property="Opacity" Value="0.5"/>
+    </Style>
+
+    <!-- ============================================================
+         Thumb.columnSplitter  –  Custom template for column resizing
+         Provides a hit-testable transparent area for drag operations.
+    ============================================================ -->
+    <Style Selector="Thumb.columnSplitter">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="VerticalAlignment" Value="Stretch"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <!-- Border binds to Background to ensure hit-testing works when transparent -->
+                    <Border Background="{TemplateBinding Background}"
+                            VerticalAlignment="Stretch"
+                            HorizontalAlignment="Stretch" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ============================================================
+         .toolbarIconBtn  –  standard icon+label toolbar button
+         Transparent bg, subtle rounded hover highlight, smooth transitions
+    ============================================================ -->
+    <Style Selector="Button.toolbarIconBtn">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="#B5BCC9"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="10,6"/>
+        <Setter Property="Height" Value="46"/>
+        <Setter Property="MinWidth" Value="58"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.12"/>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.12"/>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1"/>
+            </Transitions>
+        </Setter>
+        <Setter Property="RenderTransform" Value="scale(1)"/>
+    </Style>
+    <Style Selector="Button.toolbarIconBtn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#2E3035"/>
+        <Setter Property="TextBlock.Foreground" Value="#D4DCE8"/>
+    </Style>
+    <Style Selector="Button.toolbarIconBtn:pressed">
+        <Setter Property="RenderTransform" Value="scale(0.95)"/>
+        <Setter Property="Opacity" Value="0.75"/>
+    </Style>
+    <Style Selector="Button.toolbarIconBtn:disabled">
+        <Setter Property="Opacity" Value="0.35"/>
+        <Setter Property="Cursor" Value="Arrow"/>
+    </Style>
+
+    <!-- ============================================================
+         .toolbarIconBtnPrimary  –  "New Download" accent button (AB purple)
+         Filled accent background + gradient highlight on hover
+    ============================================================ -->
+    <Style Selector="Button.toolbarIconBtnPrimary">
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Padding" Value="14,8"/>
+        <Setter Property="Height" Value="46"/>
+        <Setter Property="MinWidth" Value="70"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1"/>
+            </Transitions>
+        </Setter>
+        <Setter Property="Background" Value="#5C6BC0"/>
+        <Setter Property="RenderTransform" Value="scale(1)"/>
+    </Style>
+    <Style Selector="Button.toolbarIconBtnPrimary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#7986CB"/>
+    </Style>
+    <Style Selector="Button.toolbarIconBtnPrimary:pressed">
+        <Setter Property="RenderTransform" Value="scale(0.96)"/>
+        <Setter Property="Opacity" Value="0.85"/>
+    </Style>
+
+    <!-- ============================================================
+         .colHeaderCell  –  download list column header cells
+         Transparent bg, pointer-over highlight, sort indicator
+    ============================================================ -->
+    <Style Selector="Border.colHeaderCell">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.1"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Border.colHeaderCell:pointerover">
+        <Setter Property="Background" Value="#2A2D32"/>
     </Style>
 </Styles>

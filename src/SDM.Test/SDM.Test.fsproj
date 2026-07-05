@@ -9,6 +9,7 @@
 
     <ItemGroup>
         <Compile Include="DownloadTests.fs"/>
+        <Compile Include="HttpMockTests.fs"/>
     </ItemGroup>
 
     <ItemGroup>
